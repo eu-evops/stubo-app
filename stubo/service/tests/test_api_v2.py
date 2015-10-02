@@ -7,6 +7,7 @@
 import json
 from stubo.testing import Base
 import logging
+import datetime
 
 log = logging.getLogger(__name__)
 
@@ -346,14 +347,6 @@ class TestSessionOperations(Base):
         self.assertEqual(response.code, 200, response.reason)
         # checking whether 10 sessions were affected
         self.assertEqual(len(json.loads(response.body)['data']), 10)
-
-    def test_setting_playback(self):
-        """
-
-        Test playback
-        """
-        # TODO: implement this test after stub creation through API v2 is available
-        pass
 
 
 class TestDelayOperations(Base):
@@ -727,6 +720,58 @@ class TestStubOperations(Base):
         # wiping stubs
         self._delete_stubs(scenario_name)
 
+    def test_export_scenario_stubs(self):
+        """
+        Test scenario export functionality. Creates a scenario, inserts stubs, ends session.
+        Then exports scenario and checks for contents. Deletes scenario in the end.
+
+        """
+        scenario_name = "scenario_stub_multi_test_x"
+        session_name = "session_stub_multi_test_x"
+
+        # insert scenario
+        self._insert_scenario(scenario_name)
+        # begin recording
+        self._begin_session_(session_name, scenario_name, "record")
+
+        for stub in xrange(10):
+            body = get_stub(["<status>IS_OK%s</status>" % stub])
+            # inserting stub
+            response = self._add_stub(session=session_name, scenario=scenario_name, body=body)
+            # after insertion there should be one stub and since it's a creation - response code should be 201
+            self.assertEqual(response.code, 201, response.reason)
+        # getting stubs
+        self.http_client.fetch(self.get_url('/stubo/api/v2/scenarios/objects/%s/stubs' % scenario_name),
+                               self.stop,
+                               method="GET")
+        response = self.wait()
+        self.assertEqual(200, response.code, response.reason)
+        self.assertTrue('data' in response.body)
+
+        # ending session
+        self._end_session(session_name, scenario_name)
+
+        # exporting scenario
+        self.http_client.fetch(self.get_url('/stubo/api/v2/scenarios/objects/scenario_stub_multi_test_x/action'),
+                               self.stop,
+                               method="POST",
+                               body='{ "export": null}')
+        response = self.wait()
+        bd = json.loads(response.body)
+        # checking response for command, yaml links and scenario name
+        self.assertTrue('command_links' in bd['data'])
+        # there should be four items in command links: commands, zip, tar.gz, jar
+        self.assertEqual(len(bd['data']['command_links']), 4, bd['data']['command_links'])
+        self.assertTrue('yaml_links' in bd['data'])
+
+        # there should be five items in yaml links: json, yaml, zip, tar.gz, jar
+        self.assertEqual(len(bd['data']['yaml_links']), 5, bd['data']['yaml_links'])
+
+        self.assertEqual(scenario_name, bd['data']['scenario'])
+
+        # wiping stubs
+        self._delete_stubs(scenario_name)
+
     def test_delete_scenario_stubs(self):
         """
         Test for delete scenario stubs API call
@@ -866,6 +911,19 @@ class TestStubOperations(Base):
         response = self.wait()
         self.assertEqual(response.code, 200, response.reason)
 
+    def _end_session(self, session, scenario):
+        """
+        Ends specified session
+        :param session:
+        :param scenario:
+        """
+        self.http_client.fetch(self.get_url('/stubo/api/v2/scenarios/objects/%s/action' % scenario),
+                               self.stop,
+                               method="POST",
+                               body='{ "end": null, "session": "%s" }' % session)
+        response = self.wait()
+        self.assertEqual(response.code, 200, response.reason)
+
     def _add_stub(self, session, scenario, body):
         """
         Adds stub for specified scenario
@@ -881,3 +939,390 @@ class TestStubOperations(Base):
                                body=json.dumps(body))
         response = self.wait()
         return response
+
+
+class TestRecords(Base):
+    def test_all_records(self):
+        """
+
+        Tests all tracker records API handler, inserts some testing stubs, checks whether information appears in tracker
+        API call
+        """
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/encoding/text/1.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/v2/tracker/records'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        json_body = json.loads(response.body)
+
+        # checking body dict keys
+        self.assertTrue('data' in json_body)
+        self.assertTrue('paging' in json_body)
+
+        # checking whether tracker collection works
+        total_items = json_body['paging']['totalItems']
+        record_list = len(json_body['data'])
+        self.assertEqual(total_items, record_list)
+
+        # checking pagination
+        self.assertIsNone(json_body['paging']['next'], 'Should be none')
+        self.assertIsNone(json_body['paging']['previous'], 'Should be none')
+
+    def test_pagination(self):
+        """
+
+        testing forward pagination
+        """
+        self._insert_items_to_tracker()
+
+        self.http_client.fetch(self.get_url('/stubo/api/v2/tracker/records'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        json_body = json.loads(response.body)
+
+        # checking body dict keys
+        self.assertTrue('data' in json_body)
+        self.assertTrue('paging' in json_body)
+
+        # there should be "next" page since we have 200 records and only 100 is currently being displayed
+        self.assertTrue('next' in json_body['paging'])
+
+        # there shouldn't be previous page
+        self.assertIsNone(json_body['paging']['previous'])
+        self.assertEqual(json_body['paging']['totalItems'], 200)
+
+    def test_pagination_backwards(self):
+        """
+
+        testing backwards pagination
+        """
+        self._insert_items_to_tracker()
+
+        self.http_client.fetch(self.get_url('/stubo/api/v2/tracker/records?skip=100&limit=100'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        json_body = json.loads(response.body)
+
+        # checking body dict keys
+        self.assertTrue('data' in json_body)
+        self.assertTrue('paging' in json_body)
+
+        # there should be "previous" page since we have 200 records and we are skipping 100
+        self.assertTrue('previous' in json_body['paging'])
+
+        # there shouldn't be next page
+        self.assertIsNone(json_body['paging']['next'])
+        self.assertEqual(json_body['paging']['totalItems'], 200)
+
+    def test_last_page(self):
+        """
+
+        Testing last page
+        """
+        self._insert_items_to_tracker(500)
+
+        self.http_client.fetch(self.get_url('/stubo/api/v2/tracker/records'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        json_body = json.loads(response.body)
+
+        # checking body dict keys
+        self.assertTrue('data' in json_body)
+        self.assertTrue('paging' in json_body)
+        self.assertTrue('last' in json_body['paging'])
+
+        last_page = json_body['paging']['last']
+        # in the last page we should be skipping 400 items and limiting results to 100
+        self.assertTrue('skip=400' in last_page)
+        self.assertTrue('limit=100' in last_page)
+
+    def _insert_items_to_tracker(self, items=200):
+        mongo_driver = self.db
+        tm = datetime.datetime.now()
+        # inserting some data
+        for i in xrange(items):
+            mongo_driver.tracker.insert({"record": i,
+                                         "start_time": tm})
+
+
+import unittest
+from stubo.service.api_v2 import MagicFiltering
+
+
+class MagicFilterTest(unittest.TestCase):
+    op_list = ['<', '<=', '>', '>=']
+
+    op_map = {
+        '<': '$lt',
+        '<=': '$lte',
+        '>': '$gt',
+        '>=': '$gte'
+    }
+
+    def test_keyword_only(self):
+        query = 'scenario1'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'])
+        self.assertTrue({'$or': [
+            {'scenario': {'$options': 'i', '$regex': 'scenario1'}},
+            {'function': {'$options': 'i', '$regex': 'scenario1'}}]} in tracker_filter['$and'])
+
+    def test_status_code_only(self):
+        """
+
+        Testing status code query creation
+        """
+        query = 'sc:200'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'])
+        self.assertTrue({'return_code': 200} in tracker_filter['$and'])
+
+    def test_multiple_status_codes(self):
+        """
+
+        Test range for response times
+        """
+        query = 'sc:>200 sc:<500'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'return_code': {'$gt': 200}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'return_code': {'$lt': 500}} in tracker_filter['$and'], tracker_filter)
+
+    def test_response_time_only(self):
+        """
+
+        Testing response time query creation
+        """
+        query = 'rt:10'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'])
+        self.assertTrue({'duration_ms': 10} in tracker_filter['$and'])
+
+    def test_multiple_response_times(self):
+        """
+
+        Test range for response times
+        """
+        query = 'rt:>10 rt:<15'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'duration_ms': {'$gt': 10}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'duration_ms': {'$lt': 15}} in tracker_filter['$and'], tracker_filter)
+
+    def test_rt_sc_mix(self):
+        """
+
+        Test a mix of response duration ranges with status code ranges
+        """
+        query = 'rt:>10 rt:<15 sc:>200 sc:<500'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'duration_ms': {'$gt': 10}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'duration_ms': {'$lt': 15}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'return_code': {'$gt': 200}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'return_code': {'$lt': 500}} in tracker_filter['$and'], tracker_filter)
+
+    def test_rt_sc_keyword_mix(self):
+        """
+
+        Test a mix of ranges and keyword
+        :return:
+        """
+        query = 'rt:>10 rt:<15 sc:>200 sc:<500 scenario1'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'duration_ms': {'$gt': 10}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'duration_ms': {'$lt': 15}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'return_code': {'$gt': 200}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'return_code': {'$lt': 500}} in tracker_filter['$and'], tracker_filter)
+        self.assertTrue({'$or': [
+            {'scenario': {'$options': 'i', '$regex': 'scenario1'}},
+            {'function': {'$options': 'i', '$regex': 'scenario1'}}]} in tracker_filter['$and'])
+
+    def test_rt_comparison_operators(self):
+        """
+
+        Test response code comparison
+        """
+        for op in self.op_list:
+            # creating query from the list
+            query = 'rt:' + op + str(50)
+            # finding relevant symbol
+            mongo_operator = self.op_map[op]
+
+            mf = MagicFiltering(query, 'localhost')
+
+            tracker_filter = mf.get_filter()
+            self.assertTrue({'duration_ms': {mongo_operator: 50}} in tracker_filter['$and'], tracker_filter)
+
+    def test_sc_comparison_operators(self):
+        """
+
+        Test status code comparison
+        """
+        for op in self.op_list:
+            # creating query from the list
+            query = 'sc:' + op + str(50)
+            # finding relevant symbol
+            mongo_operator = self.op_map[op]
+
+            mf = MagicFiltering(query, 'localhost')
+
+            tracker_filter = mf.get_filter()
+            self.assertTrue({'return_code': {mongo_operator: 50}} in tracker_filter['$and'], tracker_filter)
+
+    def test_status_code_wo_code(self):
+        """
+
+        'sc:' should not be treated as status code search since there is no status code. Use it as keyword search
+        instead
+        """
+        query = 'sc:'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'])
+        self.assertFalse({'return_code': ''} in tracker_filter['$and'])
+
+        self.assertTrue({'$or': [
+            {'scenario': {'$options': 'i', '$regex': 'sc:'}},
+            {'function': {'$options': 'i', '$regex': 'sc:'}}]} in tracker_filter['$and'])
+
+    def test_status_code_w_bad_code(self):
+        """
+
+        'sc:aaa' shouldn't be a keyword search, although it can't be used for status code search either since it is not
+        integer
+        """
+        query = 'sc:aaa'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'])
+        self.assertFalse({'return_code': 'aaa'} in tracker_filter['$and'])
+
+        self.assertFalse({'$or': [
+            {'scenario': {'$options': 'i', '$regex': 'sc:aaa'}},
+            {'function': {'$options': 'i', '$regex': 'sc:aaa'}}]} in tracker_filter['$and'])
+
+    def test_response_time_wo_code(self):
+        """
+
+        'rt:' should not be treated as response time search since there is no duration in ms. Use it as keyword search
+        instead
+        """
+        query = 'rt:'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'])
+        self.assertFalse({'duration_ms': ''} in tracker_filter['$and'])
+
+        self.assertTrue({'$or': [
+            {'scenario': {'$options': 'i', '$regex': 'rt:'}},
+            {'function': {'$options': 'i', '$regex': 'rt:'}}]} in tracker_filter['$and'])
+
+    def test_response_time_w_bad_time(self):
+        """
+
+        'rt:aaa' shouldn't be a keyword search, although it can't be used for status code search either since it is not
+        integer
+        """
+        query = 'rt:aaa'
+        mf = MagicFiltering(query, 'localhost')
+
+        tracker_filter = mf.get_filter()
+        self.assertTrue({'host': {'$regex': 'localhost'}} in tracker_filter['$and'])
+        self.assertFalse({'duration_ms': 'aaa'} in tracker_filter['$and'])
+
+        self.assertFalse({'$or': [
+            {'scenario': {'$options': 'i', '$regex': 'rt:aaa'}},
+            {'function': {'$options': 'i', '$regex': 'rt:aaa'}}]} in tracker_filter['$and'])
+
+
+class ModuleApiTest(Base):
+    """
+    Tests for v2 API
+    """
+
+    def _insert_module_from_archive(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/exports/localhost_split/split.zip'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_list_modules(self):
+        """
+
+        Tests API v2 module list functionality (displaying href, name in separate fields).
+        First it inserts a module through the API v1 commands file, then calls API v2
+        to list the modules and looks for the inserted module.
+        """
+        # preparing module
+        self._insert_module_from_archive()
+
+        # fetching v2 api
+        self.http_client.fetch(self.get_url("/api/v2/modules"),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        bd = json.loads(response.body)
+        self.assertTrue("version" in bd, bd)
+        # check whether our module is in the list as well
+
+        self.assertTrue('loaded_sys_versions' in bd['data'][0].keys(), bd)
+        self.assertTrue('latest_code_version' in bd['data'][0].keys(), bd)
+        self.assertTrue('source_raw' in bd['data'][0].keys(), bd)
+        self.assertTrue('href' in bd['data'][0].keys(), bd)
+        self.assertTrue('name' in bd['data'][0].keys(), bd)
+
+    def test_module_deletion(self):
+        """
+
+        Tests API v2 module deletion functionality. First it inserts a module
+        from a commands file (using API v1), then deletes it through the API v2.
+        Third step is to call API v2 to list modules and check whether inserted module
+        was deleted successfully.
+        """
+        # preparing module
+        self._insert_module_from_archive()
+
+        # deleting
+        self.http_client.fetch(self.get_url("/api/v2/modules/objects/splitter"),
+                               self.stop,
+                               method="DELETE")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        # querying list to see whether it was deleted
+        # fetching v2 api
+        self.http_client.fetch(self.get_url("/api/v2/modules"),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        bd = json.loads(response.body)
+        self.assertTrue("version" in bd, bd)
+        # check whether our module is in the list as well
+        self.assertFalse(
+            {u'loaded_sys_versions': [u'localhost_splitter_v1'],
+             u'latest_code_version': 1,
+             u'href': u'/api/v2/modules/objects/splitter',
+             u'name': u'splitter'} in bd['data'], bd)
