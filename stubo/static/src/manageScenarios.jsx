@@ -184,23 +184,120 @@ var RemoveButton = React.createClass({
 
         var infoModal = $('#myModal');
         var scenarioName = this.state.name;
+        var stateRef = this.state.ref;
 
-        $.ajax({
-            type: "DELETE",
-            url: this.state.ref,
-            success () {
-                var htmlData = '<ul><li> Scenario (' + scenarioName + ') removed successfuly. </li></ul>';
+        function deleteScenario() {
+            $.ajax({
+                type: "DELETE",
+                url: stateRef,
+                success: function success() {
+                    var htmlData = '<ul><li> Scenario (' + scenarioName + ') removed successfuly. </li></ul>';
+                    infoModal.find('.modal-body').html(htmlData);
+                    infoModal.modal('show');
+                    return false;
+                }
+            }).fail(function($xhr) {
+                var response = $xhr;
+                var htmlData = '<ul><li> Status code: ' + response.status + '. Error: ' + response.responseText + '</li></ul>';
                 infoModal.find('.modal-body').html(htmlData);
                 infoModal.modal('show');
                 return false;
-            }
-        }).fail(function ($xhr) {
-            var response = $xhr;
-            var htmlData = '<ul><li> Status code: ' + response.status + '. Error: ' + response.responseText + '</li></ul>';
-            infoModal.find('.modal-body').html(htmlData);
-            infoModal.modal('show');
-            return false;
-        });
+            });
+        }
+
+        function deleteScenarioStubs() {
+            $.ajax({
+                type: "GET",
+                url: stateRef + "/stubs",
+                success: function success(data) {
+                    if (data.data && data.data.length) {
+                        $.ajax({
+                            type: "DELETE",
+                            url: stateRef + "/stubs",
+                            success: function success() {
+                                var htmlData = '<ul><li> Stubs for scenario (' + scenarioName + ') removed successfuly. </li></ul>';
+                                infoModal.find('.modal-body').html(htmlData);
+                                infoModal.modal('show');
+                                deleteScenario();
+                                return false;
+                            }
+                        }).fail(function($xhr) {
+                            var response = $xhr;
+                            var htmlData = '<ul><li> Status code: ' + response.status + '. Error: ' + response.responseText + '</li></ul>';
+                            infoModal.find('.modal-body').html(htmlData);
+                            infoModal.modal('show');
+                            return false;
+                        });
+                    } else {
+                        deleteScenario();
+                    }
+                    return false;
+                }
+            }).fail(function($xhr) {
+                var response = $xhr;
+                var htmlData = '<ul><li> Status code: ' + response.status + '. Error: ' + response.responseText + '</li></ul>';
+                infoModal.find('.modal-body').html(htmlData);
+                infoModal.modal('show');
+                return false;
+            });
+        }
+
+        function endScenarioSessions() {
+            // console.log("ending scenario sessions");
+            $.ajax({
+                type: "GET",
+                url: stateRef,
+                success: function success(data) {
+                    if (data.sessions && data.sessions.length) {
+                        var needsStopping = false;
+                        for (var i = 0; i < data.sessions.length; i++) {
+                            if (data.sessions[i].status == "record" || data.sessions[i].status == "playback") {
+                                needsStopping = true;
+                            }
+                        }
+                        if (needsStopping) {
+                            var retVal = confirm("This scenario has sessions in progress. Are you sure you want to stop them?");
+                            if (retVal == true) {
+                                $.ajax({
+                                    type: "POST",
+                                    url: stateRef + "/action",
+                                    data: JSON.stringify({
+                                        "end": "sessions"
+                                    }),
+                                    dataType: "json",
+                                    success: function success() {
+                                        var htmlData = '<ul><li> Stopped sessions for (' + scenarioName + '). </li></ul>';
+                                        infoModal.find('.modal-body').html(htmlData);
+                                        infoModal.modal('show');
+                                        deleteScenarioStubs();
+                                        return false;
+                                    }
+                                });
+                                return true;
+                            } else {
+                                // console.log("User hit cancel. Bailing.")
+                                return false;
+                            }
+                        } else {
+                            // console.log("no sessions need stopping. Looking into deleting stubs");
+                            deleteScenarioStubs();
+                        }
+                    } else {
+                        // console.log("no sessions associated with scenario. Looking into deleting stubs");
+                        deleteScenarioStubs();
+                    }
+                    return false;
+                }
+            }).fail(function($xhr) {
+                var response = $xhr;
+                var htmlData = '<ul><li> Status code: ' + response.status + '. Error: ' + response.responseText + '</li></ul>';
+                infoModal.find('.modal-body').html(htmlData);
+                infoModal.modal('show');
+                return false;
+            });
+        }
+
+        endScenarioSessions();
 
     },
     render () {
