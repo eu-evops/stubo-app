@@ -1,3 +1,4 @@
+import ReactDOM from 'react-dom';
 import React from 'react'
 import {Input, Tooltip, OverlayTrigger } from 'react-bootstrap'
 import cookie from 'react-cookie'
@@ -159,7 +160,7 @@ let SettingsComponent = React.createClass({
 
 });
 
-React.render(
+ReactDOM.render(
     <SettingsComponent/>,
     document.getElementById("SettingsComponent")
 );

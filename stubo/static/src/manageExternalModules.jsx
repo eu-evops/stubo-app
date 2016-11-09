@@ -1,4 +1,5 @@
 import React from 'react'
+import ReactDOM from 'react-dom';
 import { Modal, Button} from 'react-bootstrap'
 import Highlight from 'react-highlight'
 
@@ -200,7 +201,7 @@ var ExternalModules = React.createClass({
     }
 });
 
-React.render(
+ReactDOM.render(
     <ExternalModules source="/api/v2/modules"/>,
     document.getElementById('app')
 );

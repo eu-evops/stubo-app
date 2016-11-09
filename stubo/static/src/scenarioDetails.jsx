@@ -5,6 +5,7 @@
 var React = require('../node_modules/react/react.js');
 
 var Inspector = require('../node_modules/react-json-inspector');
+import ReactDOM from 'react-dom';
 
 function getUrlVars()
 {
@@ -29,7 +30,7 @@ var LoadJsonData = function(href){
 
     $.get(href, function (result) {
         // render component
-        React.render(
+        ReactDOM.render(
             <Inspector
                 ignoreCase={false}
                 data={ result.data } />,

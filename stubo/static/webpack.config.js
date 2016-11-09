@@ -30,9 +30,10 @@ module.exports = {
               test: /\.js$/, loader: 'babel-loader'
           }
       ]
-    },
-    plugins: [
-        new CommonsChunkPlugin("commons.js")
-    ]
+    }
+,
+   plugins: [
+       new CommonsChunkPlugin("commons.js")
+   ]
 };
 

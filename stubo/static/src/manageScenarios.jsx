@@ -1,5 +1,5 @@
 import React from 'react';
-//import ReactDOM from 'react-dom';
+import ReactDOM from 'react-dom';
 import cookie from 'react-cookie';
 import Griddle from 'griddle-react';
 import { Button, Tooltip, OverlayTrigger, Grid, Row, Col, Modal, Input, ButtonInput, Alert } from 'react-bootstrap';
@@ -859,6 +859,7 @@ let ImportScenarioForm = React.createClass({
     }
 });
 
+
 let DropzoneComponent = React.createClass({
 
     getInitialState: function () {
@@ -912,7 +913,9 @@ let DropzoneComponent = React.createClass({
     }
 });
 
-React.render(
+
+
+ReactDOM.render(
     <ExternalScenarios />,
     document.getElementById("app")
 );

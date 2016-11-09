@@ -9,9 +9,15 @@ webpackJsonp([8],{
 
 	'use strict';
 
-	var React = __webpack_require__(1);
+	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { 'default': obj }; }
 
-	var Inspector = __webpack_require__(549);
+	var _reactDom = __webpack_require__(1);
+
+	var _reactDom2 = _interopRequireDefault(_reactDom);
+
+	var React = __webpack_require__(146);
+
+	var Inspector = __webpack_require__(560);
 
 	function getUrlVars() {
 	    var vars = [],
@@ -35,7 +41,7 @@ webpackJsonp([8],{
 
 	    $.get(href, function (result) {
 	        // render component
-	        React.render(React.createElement(Inspector, {
+	        _reactDom2['default'].render(React.createElement(Inspector, {
 	            ignoreCase: false,
 	            data: result.data }), document.getElementById('app'));
 	    });
@@ -45,35 +51,36 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 549:
+/***/ 560:
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var React = __webpack_require__(1);
+	var React = __webpack_require__(146);
 	var D = React.DOM;
 
-	var Leaf = __webpack_require__(550);
+	var Leaf = __webpack_require__(561);
 	var leaf = React.createFactory(Leaf);
-	var SearchBar = __webpack_require__(555);
+	var SearchBar = __webpack_require__(567);
 	var searchBar = React.createFactory(SearchBar);
 
-	var filterer = __webpack_require__(559);
-	var isEmpty = __webpack_require__(561);
-	var lens = __webpack_require__(562);
-	var noop = __webpack_require__(558);
+	var filterer = __webpack_require__(571);
+	var isEmpty = __webpack_require__(573);
+	var lens = __webpack_require__(574);
+	var noop = __webpack_require__(570);
 
 	module.exports = React.createClass({
 	    displayName: 'exports',
 
 	    propTypes: {
-	        data: React.PropTypes.oneOfType([React.PropTypes.object.isRequired, React.PropTypes.array.isRequired]),
+	        data: React.PropTypes.any.isRequired,
 	        // For now it expects a factory function, not element.
 	        search: React.PropTypes.oneOfType([React.PropTypes.func, React.PropTypes.bool]),
 	        onClick: React.PropTypes.func,
 	        validateQuery: React.PropTypes.func,
 	        isExpanded: React.PropTypes.func,
-	        filterOptions: React.PropTypes.object
+	        filterOptions: React.PropTypes.object,
+	        query: React.PropTypes.string
 	    },
 
 	    getDefaultProps: function getDefaultProps() {
@@ -101,53 +108,63 @@ webpackJsonp([8],{
 	    },
 	    getInitialState: function getInitialState() {
 	        return {
-	            query: ''
+	            query: this.props.query || ''
 	        };
 	    },
 	    render: function render() {
 	        var p = this.props;
 	        var s = this.state;
 
-	        var data = s.query ? s.filterer(s.query) : p.data;
+	        var isQueryValid = s.query !== '' && p.validateQuery(s.query);
 
-	        var rootNode = leaf({
+	        var data = isQueryValid ? s.filterer(s.query) : p.data;
+
+	        var isNotFound = isQueryValid && isEmpty(data);
+
+	        return D.div({ className: 'json-inspector ' + p.className }, this.renderToolbar(), isNotFound ? D.div({ className: 'json-inspector__not-found' }, 'Nothing found') : leaf({
 	            data: data,
 	            onClick: p.onClick,
 	            id: p.id,
 	            getOriginal: this.getOriginal,
-	            query: s.query,
+	            query: isQueryValid ? s.query : null,
 	            label: 'root',
 	            root: true,
 	            isExpanded: p.isExpanded,
 	            interactiveLabel: p.interactiveLabel
-	        });
-
-	        var notFound = D.div({ className: 'json-inspector__not-found' }, 'Nothing found');
-
-	        return D.div({ className: 'json-inspector ' + p.className }, this.renderToolbar(), isEmpty(data) ? notFound : rootNode);
+	        }));
 	    },
 	    renderToolbar: function renderToolbar() {
 	        var search = this.props.search;
 
 	        if (search) {
-	            return D.div({ className: 'json-inspector__toolbar' }, search({ onChange: this.search, data: this.props.data }));
+	            return D.div({ className: 'json-inspector__toolbar' }, search({
+	                onChange: this.search,
+	                data: this.props.data,
+	                query: this.state.query
+	            }));
 	        }
 	    },
 	    search: function search(query) {
-	        if (query === '' || this.props.validateQuery(query)) {
-	            this.setState({
-	                query: query
-	            });
-	        }
+	        this.setState({
+	            query: query
+	        });
 	    },
-	    componentDidMount: function componentDidMount() {
+	    componentWillMount: function componentWillMount() {
 	        this.createFilterer(this.props.data, this.props.filterOptions);
 	    },
 	    componentWillReceiveProps: function componentWillReceiveProps(p) {
 	        this.createFilterer(p.data, p.filterOptions);
+
+	        var isReceivingNewQuery = typeof p.query === 'string' && p.query !== this.state.query;
+
+	        if (isReceivingNewQuery) {
+	            this.setState({
+	                query: p.query
+	            });
+	        }
 	    },
 	    shouldComponentUpdate: function shouldComponentUpdate(p, s) {
-	        return s.query !== this.state.query || p.data !== this.props.data || p.onClick !== this.props.onClick;
+	        return p.query !== this.props.query || s.query !== this.state.query || p.data !== this.props.data || p.onClick !== this.props.onClick;
 	    },
 	    createFilterer: function createFilterer(data, options) {
 	        this.setState({
@@ -161,20 +178,21 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 550:
+/***/ 561:
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var React = __webpack_require__(1);
+	var React = __webpack_require__(146);
 	var D = React.DOM;
 
-	var md5omatic = __webpack_require__(551);
+	var md5omatic = __webpack_require__(562);
 
-	var uid = __webpack_require__(552);
-	var type = __webpack_require__(553);
+	var uid = __webpack_require__(563);
+	var type = __webpack_require__(564);
+	var isPrimitive = __webpack_require__(565);
 
-	var Highlighter = __webpack_require__(554);
+	var Highlighter = __webpack_require__(566);
 	var highlighter = React.createFactory(Highlighter);
 
 	var PATH_PREFIX = '.root.';
@@ -344,7 +362,7 @@ webpackJsonp([8],{
 	            return true;
 	        }
 
-	        if (p.query === '') {
+	        if (!p.query) {
 	            return p.isExpanded(keypath, p.data);
 	        } else {
 	            // When a search query is specified, first check if the keypath
@@ -381,16 +399,11 @@ webpackJsonp([8],{
 	    return string.indexOf(substring) !== -1;
 	}
 
-	function isPrimitive(value) {
-	    var t = type(value);
-	    return t !== 'Object' && t !== 'Array';
-	}
-
 	module.exports = Leaf;
 
 /***/ },
 
-/***/ 551:
+/***/ 562:
 /***/ function(module, exports) {
 
 	"use strict";
@@ -581,7 +594,7 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 552:
+/***/ 563:
 /***/ function(module, exports) {
 
 	"use strict";
@@ -594,7 +607,7 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 553:
+/***/ 564:
 /***/ function(module, exports) {
 
 	"use strict";
@@ -605,12 +618,28 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 554:
+/***/ 565:
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var React = __webpack_require__(1);
+	var type = __webpack_require__(564);
+
+	function isPrimitive(value) {
+	    var t = type(value);
+	    return t !== 'Object' && t !== 'Array';
+	}
+
+	module.exports = isPrimitive;
+
+/***/ },
+
+/***/ 566:
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var React = __webpack_require__(146);
 	var span = React.DOM.span;
 
 	module.exports = React.createClass({
@@ -640,23 +669,22 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 555:
+/***/ 567:
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var debounce = __webpack_require__(556);
-	var React = __webpack_require__(1);
+	var debounce = __webpack_require__(568);
+	var React = __webpack_require__(146);
 	var input = React.DOM.input;
 
-	var noop = __webpack_require__(558);
+	var noop = __webpack_require__(570);
 
 	module.exports = React.createClass({
 	    displayName: 'exports',
 
 	    getDefaultProps: function getDefaultProps() {
 	        return {
-	            timeout: 100,
 	            onChange: noop
 	        };
 	    },
@@ -665,18 +693,18 @@ webpackJsonp([8],{
 	            className: 'json-inspector__search',
 	            type: 'search',
 	            placeholder: 'Search',
-	            ref: 'query',
-	            onChange: debounce(this.update, this.props.timeout)
+	            value: this.props.query,
+	            onChange: this.onChange
 	        });
 	    },
-	    update: function update() {
-	        this.props.onChange(this.refs.query.getDOMNode().value);
+	    onChange: function onChange(e) {
+	        this.props.onChange(e.target.value);
 	    }
 	});
 
 /***/ },
 
-/***/ 556:
+/***/ 568:
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -686,7 +714,7 @@ webpackJsonp([8],{
 
 	'use strict';
 
-	var now = __webpack_require__(557);
+	var now = __webpack_require__(569);
 
 	/**
 	 * Returns a function, that, as long as it continues to be invoked, will not
@@ -737,7 +765,7 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 557:
+/***/ 569:
 /***/ function(module, exports) {
 
 	"use strict";
@@ -750,7 +778,7 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 558:
+/***/ 570:
 /***/ function(module, exports) {
 
 	"use strict";
@@ -759,16 +787,16 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 559:
+/***/ 571:
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var assign = __webpack_require__(560);
+	var assign = __webpack_require__(572);
 	var keys = Object.keys;
 
-	var type = __webpack_require__(553);
-	var isEmpty = __webpack_require__(561);
+	var isPrimitive = __webpack_require__(565);
+	var isEmpty = __webpack_require__(573);
 
 	module.exports = function (data, options) {
 	    options || (options = {});
@@ -822,17 +850,17 @@ webpackJsonp([8],{
 	}
 
 	function contains(query, string, options) {
-	    if (options.ignoreCase) {
-	        query = String(query).toLowerCase();
-	        return string && String(string).toLowerCase().indexOf(query) !== -1;
-	    } else {
-	        return string && String(string).indexOf(query) !== -1;
-	    }
-	}
+	    if (string) {
+	        var haystack = String(string);
+	        var needle = query;
 
-	function isPrimitive(value) {
-	    var t = type(value);
-	    return t !== 'Object' && t !== 'Array';
+	        if (options.ignoreCase) {
+	            haystack = haystack.toLowerCase();
+	            needle = needle.toLowerCase();
+	        }
+
+	        return haystack.indexOf(needle) !== -1;
+	    }
 	}
 
 	function pair(key, value) {
@@ -843,7 +871,7 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 560:
+/***/ 572:
 /***/ function(module, exports) {
 
 	'use strict';
@@ -875,7 +903,7 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 561:
+/***/ 573:
 /***/ function(module, exports) {
 
 	"use strict";
@@ -886,12 +914,12 @@ webpackJsonp([8],{
 
 /***/ },
 
-/***/ 562:
+/***/ 574:
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var type = __webpack_require__(553);
+	var type = __webpack_require__(564);
 
 	var PATH_DELIMITER = '.';
 
@@ -901,7 +929,6 @@ webpackJsonp([8],{
 	    _function: while (_again) {
 	        var data = _x,
 	            path = _x2;
-	        p = segment = t = undefined;
 	        _again = false;
 
 	        var p = path.split(PATH_DELIMITER);
@@ -917,11 +944,13 @@ webpackJsonp([8],{
 	            _x = data[integer(segment)];
 	            _x2 = p.join(PATH_DELIMITER);
 	            _again = true;
+	            p = segment = t = undefined;
 	            continue _function;
 	        } else if (t === 'Object' && data[segment]) {
 	            _x = data[segment];
 	            _x2 = p.join(PATH_DELIMITER);
 	            _again = true;
+	            p = segment = t = undefined;
 	            continue _function;
 	        }
 	    }
