@@ -33,11 +33,10 @@ var ScenarioCallWrapper = React.createClass({
     render(){
         var apiCall = this.props.rowData.scenario;
         return (
-            <div style={{overflow: 'hidden', textOverflow: 'ellipsis', direction:'rtl'}}> {apiCall} </div>
+            <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
         )
     }
 });
-
 
 var StatusLabelComponent = React.createClass({
     displayName: "StatusLabelComponent",
@@ -136,7 +135,7 @@ var columnMeta = [
         "order": 3,
         "locked": false,
         "visible": true,
-        // "customComponent": ScenarioCallWrapper
+        "customComponent": ScenarioCallWrapper
     },
     {
         "columnName": "return_code",

@@ -109,6 +109,37 @@ webpackJsonp([5],[
 	    render: function render() {
 	        var url = "/manage/scenarios/details?scenario=" + this.props.rowData.ref;
 	        return _react2['default'].createElement(
+	            'div',
+	            { style: { overflow: 'hidden', textOverflow: 'ellipsis' } },
+	            _react2['default'].createElement(
+	                'a',
+	                { href: url },
+	                this.props.data
+	            )
+	        );
+	    }
+	});
+
+	var SessionComponent = _react2['default'].createClass({
+	    displayName: "SessionComponent",
+
+	    render: function render() {
+	        return _react2['default'].createElement(
+	            'div',
+	            { style: { overflow: 'hidden', textOverflow: 'ellipsis' } },
+	            this.props.data
+	        );
+	    }
+	});
+
+	var ScenarioCallWrapper = _react2['default'].createClass({
+	    displayName: "ScenarioCallWrapper",
+
+	    render: function render() {
+	        // var apiCall = this.props.rowData.scenario;
+	        // return <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
+	        var url = "/manage/scenarios/details?scenario=" + this.props.rowData.ref;
+	        return _react2['default'].createElement(
 	            'a',
 	            { href: url },
 	            _react2['default'].createElement(
@@ -560,6 +591,13 @@ webpackJsonp([5],[
 	    "locked": false,
 	    "visible": true,
 	    "customComponent": LinkComponent
+	}, {
+	    "columnName": "session",
+	    "displayName": "Session",
+	    "order": 1,
+	    "locked": false,
+	    "visible": true,
+	    "customComponent": SessionComponent
 	}, {
 	    "columnName": "actions",
 	    "displayName": "Actions",

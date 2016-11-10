@@ -64,7 +64,7 @@ webpackJsonp([6],[
 	        var apiCall = this.props.rowData.scenario;
 	        return _react2['default'].createElement(
 	            'div',
-	            { style: { overflow: 'hidden', textOverflow: 'ellipsis', direction: 'rtl' } },
+	            { style: { overflow: 'hidden', textOverflow: 'ellipsis' } },
 	            ' ',
 	            apiCall,
 	            ' '
@@ -175,9 +175,9 @@ webpackJsonp([6],[
 	    "displayName": "Scenario",
 	    "order": 3,
 	    "locked": false,
-	    "visible": true
-	}, // "customComponent": ScenarioCallWrapper
-	{
+	    "visible": true,
+	    "customComponent": ScenarioCallWrapper
+	}, {
 	    "columnName": "return_code",
 	    "displayName": "HTTP status code",
 	    "order": 4,

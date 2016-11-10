@@ -7,6 +7,8 @@ ui:
 run:
 	python run.py
 
+buildnrun: ui run
+
 tests:
 	nosetests
 

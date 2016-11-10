@@ -83,8 +83,28 @@ var LinkComponent = React.createClass({
 
     render () {
         var url = "/manage/scenarios/details?scenario=" + this.props.rowData.ref;
-        return <a href={url}><span style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {this.props.data}</span></a>
+        return <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
+            <a href={url}>{this.props.data}</a>
+        </div>
+    }
+});
 
+var SessionComponent = React.createClass({
+    displayName: "SessionComponent",
+
+    render () {
+        return <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{this.props.data}</div>
+    }
+});
+
+var ScenarioCallWrapper = React.createClass({
+    displayName: "ScenarioCallWrapper",
+
+    render(){
+        // var apiCall = this.props.rowData.scenario;
+        // return <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
+        var url = "/manage/scenarios/details?scenario=" + this.props.rowData.ref;
+        return <a href={url}><span style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {this.props.data}</span></a>
     }
 });
 
@@ -496,6 +516,14 @@ var columnMeta = [
         "locked": false,
         "visible": true,
         "customComponent": LinkComponent
+    },
+    {
+        "columnName": "session",
+        "displayName": "Session",
+        "order": 1,
+        "locked": false,
+        "visible": true,
+        "customComponent": SessionComponent
     },
     {
         "columnName": "actions",
