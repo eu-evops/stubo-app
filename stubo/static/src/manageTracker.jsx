@@ -1,7 +1,8 @@
-//import ReactDOM from 'react-dom';
+import ReactDOM from 'react-dom';
 import React from 'react';
 import Griddle from 'griddle-react';
 import { Tooltip, OverlayTrigger, Button} from 'react-bootstrap';
+import cookie from 'react-cookie';
 
 // currently not used, need more testing, but it should be fast enough so loading message is not required
 var Loading = React.createClass({
@@ -21,12 +22,21 @@ var ApiCallWrapper = React.createClass({
     render(){
         var apiCall = this.props.rowData.function;
         return (
+            <div style={{overflow: 'hidden', textOverflow: 'ellipsis', direction:'rtl'}}> {apiCall} </div>
+        )
+    }
+});
+
+var ScenarioCallWrapper = React.createClass({
+    displayName: "ScenarioCallWrapper",
+
+    render(){
+        var apiCall = this.props.rowData.scenario;
+        return (
             <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
         )
     }
-
 });
-
 
 var StatusLabelComponent = React.createClass({
     displayName: "StatusLabelComponent",
@@ -124,7 +134,8 @@ var columnMeta = [
         "displayName": "Scenario",
         "order": 3,
         "locked": false,
-        "visible": true
+        "visible": true,
+        "customComponent": ScenarioCallWrapper
     },
     {
         "columnName": "return_code",
@@ -226,7 +237,13 @@ var RecordsComponent = React.createClass({
             // fallback to regular queries
             var query = '?skip=' + skip;
 
-            var href = '/api/v2/tracker/records' + query + '&limit=25' + '&q=' + this.state.currentQuery;
+            var allHosts = "";
+
+            if (cookie.load('stubo.all-hosts') || false) {
+                allHosts = "&all-hosts=true";
+            }
+
+            var href = '/api/v2/tracker/records' + query + '&limit=25' + allHosts + '&q=' + this.state.currentQuery;
 
             $.get(href, function (data) {
 
@@ -320,4 +337,4 @@ var RecordsComponent = React.createClass({
 });
 
 
-React.render(<RecordsComponent />, document.getElementById("app"));
+ReactDOM.render(<RecordsComponent />, document.getElementById("app"));

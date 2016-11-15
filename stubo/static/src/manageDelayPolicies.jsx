@@ -2,6 +2,7 @@ var React = require('../node_modules/react');
 var Griddle = require('../node_modules/griddle-react');
 var Button = require('../node_modules/react-bootstrap').Button;
 var cookie = require('react-cookie');
+import ReactDOM from 'react-dom';
 
 // wrapper for list items
 var ListItemWrapper = React.createClass({
@@ -229,7 +230,7 @@ var ExternalDelayPolicies = React.createClass({
     }
 });
 
-React.render(
+ReactDOM.render(
     <ExternalDelayPolicies source="/api/v2/delay-policy/detail"/>,
     document.getElementById('app')
 );

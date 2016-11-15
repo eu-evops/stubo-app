@@ -1,3 +1,4 @@
+import ReactDOM from 'react-dom';
 import React from 'react';
 //import ReactDOM from 'react-dom';
 import { Label, Well} from 'react-bootstrap';
@@ -223,7 +224,7 @@ var TrackerDetails = React.createClass({
     }
 });
 
-React.render(
+ReactDOM.render(
     <TrackerDetails/>,
     document.getElementById("app")
 );
