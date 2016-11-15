@@ -1,4 +1,5 @@
 import React from 'react'
+import ReactDOM from 'react-dom';
 
 import { Grid, Row, Col, OverlayTrigger, Tooltip, Input, ButtonInput, Label, Button} from 'react-bootstrap'
 
@@ -57,7 +58,7 @@ const ExecuteCmdsFile = React.createClass({
                 // unmounting current results
                 React.unmountComponentAtNode(document.getElementById('CommandResults'));
                 // mounting results
-                React.render(<CommandResultsComponent data={data}/>, document.getElementById("CommandResults"))
+                ReactDOM.render(<CommandResultsComponent data={data}/>, document.getElementById("CommandResults"))
             }
         }).fail(function ($xhr) {
             var data = $xhr.responseJSON;
@@ -133,7 +134,7 @@ const ExecuteDirectCommands = React.createClass({
                 // unmounting current results
                 React.unmountComponentAtNode(document.getElementById('CommandResults'));
                 // mounting results
-                React.render(<CommandResultsComponent data={data}/>, document.getElementById("CommandResults"))
+                ReactDOM.render(<CommandResultsComponent data={data}/>, document.getElementById("CommandResults"))
             }
         }).fail(function ($xhr) {
             var data = $xhr.responseJSON;
@@ -309,4 +310,4 @@ let CommandResultsComponent = React.createClass({
 });
 
 
-React.render(<ExecuteCommandsPanel />, document.getElementById("ExecuteCommands"));
+ReactDOM.render(<ExecuteCommandsPanel />, document.getElementById("ExecuteCommands"));

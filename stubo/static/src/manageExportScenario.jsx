@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactDOM from 'react-dom';
 import { Grid, Row, Col, OverlayTrigger, Tooltip } from 'react-bootstrap';
 
 function getUrlVars() {
@@ -102,7 +103,7 @@ let ExportInformation = React.createClass({
                     });
 
                     // rendering name
-                    React.render(
+                    ReactDOM.render(
                         <ScenarioNameComponent key={data.data.scenario} data={data.data.scenario}/>,
                         document.getElementById("scenarioName")
                     );
@@ -182,7 +183,7 @@ let ExportInformation = React.createClass({
 });
 
 
-React.render(
+ReactDOM.render(
     <ExportInformation />,
     document.getElementById("app")
 );

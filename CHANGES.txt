@@ -11,6 +11,20 @@ Deprecated:
 
 Removed:
 
+0.8.4 
+
+Added:
+
+- Now possible to delete scenarios with associated stubs, sessions etc. (https://github.com/SpectoLabs/BA-Mirage-Support/issues/5)
+- Fixed display issues in tracker by ellipsizing. (https://github.com/SpectoLabs/BA-Mirage-Support/issues/3)
+- Now able to restrict tracker logs to current host only. (https://github.com/SpectoLabs/BA-Mirage-Support/issues/11)
+
+0.8.3 (2016-02-03)
+
+Added:
+- Tutum configuration
+- Fixed bug when new external modules were added even though the source didn't change (https://github.com/SpectoLabs/mirage/pull/81)
+
 0.8.2 (2015-11-05)
 
 Added:
