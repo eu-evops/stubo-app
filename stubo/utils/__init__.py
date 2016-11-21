@@ -200,8 +200,11 @@ def get_tsecs():
     return time.mktime(t.timetuple())
 
 
-def as_date(date_str):
-    return date(*(int(x) for x in date_str.split('-')))
+def as_date(date_str, format_str=""):
+    if format_str:
+        return datetime.strptime(date_str, format_str).date()
+    else:
+        return date(*(int(x) for x in date_str.split('-')))
 
 
 def convert_to_script(data, var_name='_client_data'):
