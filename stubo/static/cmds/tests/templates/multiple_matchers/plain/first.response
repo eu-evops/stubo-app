@@ -1,0 +1,6 @@
+{% import random %}
+{% set flight_nbr='XX1234' %}
+{% set rnd_nbr = random.randint(1,200) %}
+The flight number is: {{flight_nbr}}
+Hello World {{ 1000 + rnd_nbr }}
+

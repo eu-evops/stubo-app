@@ -1,0 +1,5 @@
+{% import datetime %}
+{% set yy = str(datetime.datetime.now().year)[2:] %}
+{% set mm = datetime.datetime.now().strftime('%b') %}
+{% set dd = '%02d' % datetime.datetime.now().day %}
+<rollMe>{{dd}}{{mm}}{{yy}}</rollMe>
