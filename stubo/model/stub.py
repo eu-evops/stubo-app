@@ -98,7 +98,7 @@ class StubData(object):
         return self.payload['request'].get('queryArgs')
 
     def contains_matchers(self):
-        return self.payload['request'].get('bodyPatterns', {}).get('contains')
+        return [] if 'request' not in self.payload.keys() else self.payload['request'].get('bodyPatterns', {}).get('contains')
 
     def set_contains_matchers(self, matchers):
         self.request()['bodyPatterns']['contains'] = matchers

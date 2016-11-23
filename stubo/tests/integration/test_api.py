@@ -1989,6 +1989,53 @@ class TestGetResponse(Base):
         tracker = self.db.tracker.find_one({'function': 'get/response'})
         self.assertEqual(tracker['request_params'].get('session'), 'playme')
 
+class TestMultipleMatchers(Base):
+
+    def test_multiple_matchers_multiple_lines_template(self):
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/multiple_matchers/templated/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        import datetime
+        yy = str(datetime.datetime.now().year)[2:]
+        mm = datetime.datetime.now().strftime('%b')
+        dd = '%02d' % datetime.datetime.now().day
+
+        rollMe = "<rollMe>%s%s%s</rollMe>"%(dd,mm,yy)
+        something = "<something>some</something>"
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_2'),
+            callback=self.stop, method="POST",
+            body=something+rollMe)
+        response = self.wait()
+        body = response.body.strip()
+        self.assertIn("The flight number is", body)
+
+    def test_multiple_matchers_multiple_lines(self):
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/multiple_matchers/plain/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        import datetime
+        yy = str(datetime.datetime.now().year)[2:]
+        mm = datetime.datetime.now().strftime('%b')
+        dd = '%02d' % datetime.datetime.now().day
+
+        rollMe = "<rollMe>%s%s%s</rollMe>"%(dd,mm,yy)
+        something = "<something>some</something>"
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_2'),
+            callback=self.stop, method="POST",
+            body=something+rollMe)
+        response = self.wait()
+        body = response.body.strip()
+        self.assertIn("The flight number is", body)
 
 class TestHTTPCompression(Base):
     def get_httpserver_options(self):
