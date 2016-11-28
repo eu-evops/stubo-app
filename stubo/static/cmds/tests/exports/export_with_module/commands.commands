@@ -1,0 +1,15 @@
+# First use of Stub-O-Matic
+# run this from a browser with uri:
+#   http://127.0.0.1:8000/stubo/default/execCmds?cmdFile=demo/first.commands (substitute the correct machine and port)
+#   or from the stubo 'import' page with: demo/first.commands
+# put/module?name=https://cap-subversion.baplc.com/svn/repos/CAP/test-o-matic/trunk/src/applications/stubo/static/stubs/sandbox/SIPtesting/Stuborecordingproblem/tester.py
+put/module?name=/static/issues/18/tester.py
+
+delete/stubs?scenario=first&force=true
+begin/session?scenario=first&session=first_1&mode=record
+put/stub?session=first_1&stubbedSystem=tester, request.textMatcher, resp.response
+end/session?session=first_1
+
+begin/session?scenario=first&session=first_2&mode=playback
+get/response?session=first_2, request.request
+end/session?session=first_2
