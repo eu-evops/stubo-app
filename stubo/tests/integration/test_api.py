@@ -1223,6 +1223,26 @@ class TestCommandsImport(Base):
         response = self.wait()
         self.assertEqual(response.code, 200)
 
+    def test_export_with_module(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/exports/export_with_module/commandsTwo.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_first/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.assertTrue("delete/stubs?scenario=first" in response.body)
+        self.assertTrue("system_date" in response.body)
+        self.assertTrue("stubbedSystemDate" in response.body)
+        self.assertTrue("stub_created_date" in response.body)
+
 
 class TestSession(Base):
     def test_duplicate(self):

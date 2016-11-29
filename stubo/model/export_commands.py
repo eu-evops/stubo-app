@@ -56,32 +56,36 @@ def export_stubs_to_commands_format(handler, scenario_name_key, scenario_name, s
     files = []
     scenario = Scenario()
     # get scenario pre stubs for specified scenario
-    stubs = list(scenario.get_pre_stubs(scenario_name_key))
-    if stubs:
-        for i in range(len(stubs)):
-            entry = stubs[i]
-            stub = Stub(entry['stub'], scenario_name_key)
+    stubs = list(scenario.get_stubs(scenario_name_key))
+    pre_stubs = list(scenario.get_pre_stubs(scenario_name_key))
+    if pre_stubs:
+        for i in range(len(pre_stubs)):
+            pre_entry = pre_stubs[i]
+            pre_stub = Stub(pre_entry['stub'], scenario_name_key)
             # if stub is rest - matcher may be None, checking that
-            if stub.contains_matchers() is None:
+            if pre_stub.contains_matchers() is None:
                 cmds.append('# Stub skipped since no matchers were found. Consider using .yaml format for additional '
                             'capabilities')
                 # skipping to next stub, this stub is not compatible with .commands format
                 continue
-            matchers = [('{0}_{1}_{2}.textMatcher'.format(session, i, x), stub.contains_matchers()[x])
-                        for x in range(len(stub.contains_matchers()))]
+            matchers = [('{0}_{1}_{2}.textMatcher'.format(session, i, x), pre_stub.contains_matchers()[x])
+                        for x in range(len(pre_stub.contains_matchers()))]
             matchers_str = ",".join(x[0] for x in matchers)
-            url_args = stub.args()
+            url_args = pre_stub.args()
             url_args['session'] = session
-            module_info = stub.module()
-            if module_info:
-                # Note: not including put/module in the export, modules are shared
-                # by multiple scenarios.
-                url_args['ext_module'] = module_info['name']
-                url_args['stub_created_date'] = stub.recorded()
-                url_args['stubbedSystemDate'] = module_info.get('recorded_system_date')
-                url_args['system_date'] = module_info.get('system_date')
+            entry = stubs[i] if stubs else None
+            if entry:
+                stub = Stub(entry['stub'], scenario_name_key) if entry and "stub" in entry else None
+                module_info = stub.module() if stub else None
+                if module_info:
+                    # Note: not including put/module in the export, modules are shared
+                    # by multiple scenarios.
+                    url_args['ext_module'] = module_info['name']
+                    url_args['stub_created_date'] = stub.recorded()
+                    url_args['stubbedSystemDate'] = module_info.get('recorded_system_date')
+                    url_args['system_date'] = module_info.get('system_date')
             url_args =  urlencode(url_args)
-            responses = stub.response_body()
+            responses = pre_stub.response_body()
             assert(len(responses) == 1)
             response = responses[0]
             response = ('{0}_{1}.response'.format(session, i), response)
