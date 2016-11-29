@@ -11,6 +11,12 @@ Deprecated:
 
 Removed:
 
+0.8.5
+
+Added:
+
+- Added ability to explicitely format dates, for date rolling purposes
+
 0.8.4 
 
 Added:
