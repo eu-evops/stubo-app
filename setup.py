@@ -54,7 +54,6 @@ setup(name='stubo',
       zip_safe=False,
       install_requires = requires,
       tests_require= requires,
-      test_suite="stubo",
       entry_points = """\
       [console_scripts]
       stubo = stubo.scripts.service:run_stubo_app
