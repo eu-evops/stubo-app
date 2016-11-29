@@ -37,7 +37,7 @@ def today_str(fmt="%d%m%y"):
     return date.today().strftime(fmt)
 
 
-def roll_date(date_str, recorded, played):
+def roll_date(date_str, recorded, played, date_format=""):
     """ 
     Roll date part only based on the following:
     delta = ``recorded`` - parse_date(``date_str``)
@@ -50,14 +50,20 @@ def roll_date(date_str, recorded, played):
     day_first = False
     year_first = True
 
-    parsed_date, date_format = parse_date_string(date_str, day_first, year_first)
+    if not date_format:
+        parsed_date, date_format = parse_date_string(date_str, day_first, year_first)
+    else:
+        # log.debug("DATE FORMAT", date_format)
+        parsed_date = datetime.strptime(date_str, date_format)
+
     log.debug('parsed_date={0}, format={1}'.format(parsed_date, date_format))
+
     if not all((parsed_date, date_format)):
         return date_str
 
-    delta = recorded - parsed_date.date()
+    delta = played - recorded
     log.debug('delta={0} days'.format(delta))
-    rolled_date = played - delta
+    rolled_date = parsed_date.date() + delta
     # add time back on
     rolled_date = datetime.combine(rolled_date, parsed_date.time())
     log.debug('rolled date={0}'.format(rolled_date))
