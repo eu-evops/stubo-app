@@ -1,0 +1,7 @@
+delete/stubs?scenario=first
+begin/session?scenario=first&session=first_1&mode=record
+put/stub?session=first_1,initial.matcher,first.matcher,first.response
+end/session?session=first_1
+begin/session?scenario=first&session=first_2&mode=playback
+
+

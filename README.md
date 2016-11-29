@@ -10,9 +10,13 @@ Mirage enables development and automated testing by allowing you to virtualize y
 
 ## Documentation
 
-[New documentation](https://github.com/SpectoLabs/mirage/wiki)
+### readthedocs
 
-[Old documentation](<http://mirage.readthedocs.org/en/latest/?badge=latest/>)
+The [readthedocs documentation](<http://mirage.readthedocs.org/en/latest/?badge=latest/>) is the official Mirage documentation.
+
+### Wiki
+
+The [Wiki](https://github.com/SpectoLabs/mirage/wiki) is the place for collaborative documentation efforts.
 
 ## Authors
 

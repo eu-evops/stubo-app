@@ -122,15 +122,18 @@ class TransformerBase(object):
             stub.set_response_body(self.eval_text(stub.response_body()[0],
                                                   request,
                                                   **context).decode('utf8'))
-        elif context['function'] == 'get/response' \
-                and context['stage'] == 'matcher' \
-                and stub.number_of_matchers() == 1:
-            # run stub matcher thru template even in the absence of an exit  
+        elif context['function'] == 'get/response' and context['stage'] == 'matcher':
+            contained_matchers = stub.contains_matchers() or []
+            decoded = []
             stub = context['stub']
-            trace.info("process matcher template")
-            # eval_text returns utf8 so decode to unicode again here
-            stub.set_contains_matchers([self.eval_text(stub.contains_matchers()[0],
-                                                       request, **context).decode('utf8')])
+            for to_eval in contained_matchers:
+                # run stub matcher thru template even in the absence of an exit
+                trace.info("process matcher template")
+                # eval_text returns utf8 so decode to unicode again here
+                evaluated = self.eval_text(to_eval, request, **context)
+                decoded.append(evaluated.decode('utf8'))
+            if len(decoded):
+                stub.set_contains_matchers(decoded)
         return stub, request
 
     def get_user_exit(self, request, context):
