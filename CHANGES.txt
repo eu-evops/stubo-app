@@ -11,6 +11,15 @@ Deprecated:
 
 Removed:
 
+0.8.5
+
+Added:
+
+- Added ability to explicitely format dates, for date rolling purposes
+- Fixed a bug with multiple templated matches not evaluating propertly
+- Fixed a bug with exporting not working correctly with external modules
+- Fixed the documentation
+
 0.8.4 
 
 Added:
