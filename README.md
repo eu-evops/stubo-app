@@ -16,13 +16,11 @@ The [readthedocs documentation](<http://mirage-docs.readthedocs.org/en/latest/?b
 
 ### Wiki
 
-The [Wiki](https://github.com/SpectoLabs/mirage/wiki) is the place for collaborative documentation efforts.
+The [Wiki](https://github.com/InternationalAirlinesGroup/mirage/wiki) is the place for collaborative documentation efforts.
 
 ## Authors
 
-Mirage is actively maintained by [SpectoLabs](http://specto.io).
-
-For support, [contact us.](mailto:contact@specto.io)
+Mirage was formerly maintained by [SpectoLabs](http://specto.io).
 
 ## License
 
