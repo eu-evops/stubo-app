@@ -1,7 +1,7 @@
 Mirage
 ======
 
-[![Build Status](https://travis-ci.org/SpectoLabs/mirage.png?branch=master)](https://travis-ci.org/SpectoLabs/mirage)
+[![Build Status](https://travis-ci.org/InternationalAirlinesGroup/mirage.svg?branch=master)](https://travis-ci.org/InternationalAirlinesGroup/mirage)
 [![Documentation Status](https://readthedocs.org/projects/mirage/badge/?version=latest)](http://mirage.readthedocs.org/en/latest/?badge=latest)
 
 Mirage enables development and automated testing by allowing you to virtualize your application dependencies.
