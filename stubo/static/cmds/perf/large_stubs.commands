@@ -8,7 +8,7 @@
 
 
 {% set startIndex = int(globals().get('startIndex', [1000])[0] %}
-{% set nbr = startIndex + int(globals().get('nbr', [5])[0]) %}
+{% set nbr = startIndex + int(globals().get('nbr', [5])[0] %}
 
 # delete any previously existing scenarios
 {% for scenario_counter in range(startIndex, nbr) %}
