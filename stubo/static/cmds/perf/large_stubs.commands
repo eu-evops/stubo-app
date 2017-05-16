@@ -30,7 +30,7 @@ begin/session?scenario=scenario_{{scenario_counter}}&session=playback_{{scenario
 {% for sc in range(startIndex, nbr) %}
 {% set ms = matcher_cycle.next() %}
 {% set rs = response_cycle.next() %}
-put/stub?session=playback_{{str(sc)}}&delay_policy=delay_1,15kb.textMatcher,{{rs}}kb.response
+put/stub?session=playback_{{str(sc)}}&delay_policy=delay_1,20kb.textMatcher,{{rs}}kb.response
 {% for stb in range(sc,(sc + 2)) %}
 {% set ms = matcher_cycle.next() %}
 {% set rs = response_cycle.next() %}
