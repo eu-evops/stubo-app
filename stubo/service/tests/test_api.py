@@ -1,1358 +1,2346 @@
-import mock
-import unittest
+# -*- coding: utf-8 -*-
+import json
+import os
+import yaml
+import logging
+from stubo.cache import Cache
+from stubo.cache.backends import get_redis_master, RedisCacheBackend
+from stubo.model.db import Tracker
+from stubo.testing import Base
 
-from stubo.testing import (
-    DummyCache, DummyScenario, DummyRequestHandler, DummyTracker, make_stub
-)
-
-
-class TestFunctions(unittest.TestCase):
-
-    def test_get_dbenv(self):
-        from stubo.service.api import get_dbenv
-
-        request = DummyRequestHandler()
-        request.settings['mongo.host'] = 'mongo'
-        request.settings['mongo.port'] = 9999
-        env = get_dbenv(request)
-        self.assertEqual(env['host'], 'mongo')
-        self.assertEqual(env['port'], 9999)
-
-    def test_get_dbenv_no_settings(self):
-        from stubo.service.api import get_dbenv
-
-        request = DummyRequestHandler()
-        self.assertEqual(get_dbenv(request), None)
+log = logging.getLogger(__name__)
 
 
-class TestCmds(unittest.TestCase):
-    def setUp(self):
-        self.patch = mock.patch('stubo.service.api.TextCommandsImporter',
-                                DummyStuboCommandFile)
-        self.patch.start()
+class TestPutDelay(Base):
+    def test_put_fixed(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=rtz_1&delay_type=fixed&milliseconds=700'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"message": "Put Delay Policy Finished",
+                           u'status': 'new', "delay_type": "fixed",
+                           "name": "rtz_1"}}
+        self.assertEqual(payload, expect)
+        self.assertTrue(int(response.request_time) < 5)
 
-    def tearDown(self):
-        self.patch.stop()
+    def test_put_normalvariate(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=rtz_2&delay_type=normalvariate&mean=100&stddev=50'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"message": "Put Delay Policy Finished",
+                           u'status': 'new', "delay_type": "normalvariate",
+                           "name": "rtz_2"}}
+        self.assertEqual(payload, expect)
+        self.assertTrue(int(response.request_time) < 5)
 
-    def test_empty_cmds(self):
-        from stubo.service.api import run_commands
+    def test_update_delay(self):
+        from stubo.cache import RedisCacheBackend
+        from stubo.cache.backends import get_redis_master
 
-        response = run_commands(DummyRequestHandler(), '')
-        self.assertEqual(response['data'], {
-            'executed_commands': {'commands': []},
-            'number_of_requests': 0,
-            'number_of_errors': 0})
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=x&delay_type=fixed&milliseconds=7'), self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=x&delay_type=fixed&milliseconds=8'),
+                               self.stop)
+        response = self.wait()
+        delay_policy = RedisCacheBackend(get_redis_master()).get('localhost:delay_policy', 'x')
+        self.assertTrue(delay_policy['milliseconds'], 8)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"message": "Put Delay Policy Finished",
+                           u'status': 'updated', "delay_type": "fixed",
+                           "name": "x"}}
+        payload = json.loads(response.body)
+        self.assertEqual(payload, expect)
 
-    def test_unsupported_cmds(self):
-        from stubo.service.api import run_commands
-        from stubo.exceptions import HTTPClientError
+    def test_get_one_delay_policy(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=rtz_1&delay_type=fixed&milliseconds=700'),
+                               self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url('/stubo/api/get/delay_policy?'
+                                            'name=rtz_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  'data': {'delay_type': 'fixed', 'milliseconds': '700',
+                           'name': 'rtz_1'}}
+        self.assertEqual(payload, expect)
+        self.assertTrue(int(response.request_time) < 5)
 
-        with self.assertRaises(HTTPClientError):
-            run_commands(DummyRequestHandler(), 'get/response')
-
-    def test_1cmd(self):
-        from stubo.service.api import run_commands
-
-        cmds_text = 'delete/stubs?scenario=foo'
-        response = run_commands(DummyRequestHandler(), cmds_text)
-        self.assertEqual(response['data'], {
-            'executed_commands': {'commands': [('delete/stubs?scenario=foo', 200)]},
-            'number_of_requests': 1,
-            'number_of_errors': 0})
-
-    def test_1cmd_spaces(self):
-        from stubo.service.api import run_commands
-
-        cmds_text = ' delete/stubs?scenario=foo '
-        response = run_commands(DummyRequestHandler(), cmds_text)
-        self.assertEqual(response['data'], {
-            'executed_commands': {'commands': [('delete/stubs?scenario=foo', 200)]},
-            'number_of_requests': 1,
-            'number_of_errors': 0})
-
-    def test_2cmds(self):
-        from stubo.service.api import run_commands
-
-        cmds_text = 'delete/stubs?scenario=foo\ndelete/stubs?scenario=bar'
-        response = run_commands(DummyRequestHandler(), cmds_text)
-        self.assertEqual(response['data'], {
-            'executed_commands': {'commands': [('delete/stubs?scenario=foo', 200),
-                                               ('delete/stubs?scenario=bar', 200)]},
-            'number_of_requests': 2, 'number_of_errors': 0})
-
-    def test_2cmds_spaces(self):
-        from stubo.service.api import run_commands
-
-        cmds_text = ' delete/stubs?scenario=foo\n delete/stubs?scenario=bar '
-        response = run_commands(DummyRequestHandler(), cmds_text)
-        self.assertEqual(response['data'], {
-            'executed_commands': {'commands': [('delete/stubs?scenario=foo', 200),
-                                               ('delete/stubs?scenario=bar', 200)]},
-            'number_of_requests': 2, 'number_of_errors': 0})
-
-    def test_export_cmd(self):
-        from stubo.service.api import run_commands
-
-        cmds_text = 'get/export?scenario=foo'
-        response = run_commands(DummyRequestHandler(), cmds_text)
-        self.assertEqual(response['data'], {
-            'export_links': [('get/export?scenario=foo',
-                              [('foo.zip', 'http://localhost:8001/static/exports/localhost_foo/foo.zip'),
-                               ('foo.tar.gz', 'http://localhost:8001/static/exports/localhost_foo/foo.tar.gz'),
-                               ('foo.jar', 'http://localhost:8001/static/exports/localhost_foo/foo.jar')])],
-            'executed_commands': {'commands': [('get/export?scenario=foo', 200)]},
-            'number_of_requests': 1,
-            'number_of_errors': 0})
+    def test_get_many_delay_policies(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=rtz_1&delay_type=fixed&milliseconds=700'),
+                               self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=rtz_2&delay_type=normalvariate&mean=100&stddev=50'),
+                               self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url('/stubo/api/get/delay_policy'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"rtz_1": {"delay_type": "fixed", "name": "rtz_1",
+                                     "milliseconds": "700"},
+                           "rtz_2": {"delay_type": "normalvariate", "name": "rtz_2",
+                                     "stddev": "50", "mean": "100"}}}
+        self.assertEqual(payload, expect)
+        self.assertTrue(int(response.request_time) < 5)
 
 
-class TestSession(unittest.TestCase):
-    def setUp(self):
-        self.cache = DummyCache('localhost')
-        self.patch = mock.patch('stubo.service.api.Cache', self.cache)
-        self.patch.start()
-        self.scenario = DummyScenario()
-        self.db_patch = mock.patch('stubo.service.api.Scenario', self.scenario)
-        self.db_patch.start()
-        self.db_patch2 = mock.patch('stubo.cache.Scenario', self.scenario)
-        self.db_patch2.start()
+class TestAcceptance(Base):
+    def test_exec_first_commands(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
 
-    def tearDown(self):
-        self.patch.stop()
-        self.db_patch.stop()
-        self.db_patch2.stop()
+        stubo_response = self.db.tracker.find_one({'function': 'get/response'},
+                                                  {'stubo_response': 1})['stubo_response']
+        self.assertEqual('Hello 2 World\n', stubo_response)
+        cmds = ['delete/stubs?scenario=first',
+                'begin/session?scenario=first&session=first_1&mode=record',
+                'put/stub?session=first_1,first.textMatcher,first.response',
+                'end/session?session=first_1',
+                'begin/session?scenario=first&session=first_1&mode=playback',
+                'get/response?session=first_1,first.request',
+                'end/session?session=first_1']
+        for cmd in cmds:
+            self.assertTrue(cmd in response.body)
 
-    def make_request(self, **kwargs):
-        return DummyRequestHandler(**kwargs)
 
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
+class TestRequestCacheLimit(Base):
+    def test_cached_requests_are_in_limit(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/cmds/tests/request_cache_limit/1.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        from stubo.cache.backends import RedisCacheBackend
 
-    def test_record_dup_scenario(self):
-        from stubo.service.api import begin_session
-        from stubo.exceptions import HTTPClientError
+        keys = RedisCacheBackend(self.redis_server).keys(
+            'localhost:request_cache_limit:request')
+        self.assertEqual(len(keys), self.cfg['request_cache_limit'])
 
-        self._make_scenario('localhost:foo')
-        session_payload = {
-            'status': 'dormant',
-            'scenario': 'localhost:foo',
-            'session': '1'
-        }
-        self.cache.set_session('foo', '1', session_payload)
-        with self.assertRaises(HTTPClientError):
-            begin_session(self.make_request(), 'foo', '1', 'record',
-                          system_date=None, warm_cache=False)
 
-    def test_record(self):
-        from stubo.service.api import begin_session
-        response = begin_session(self.make_request(), 'foo', '1', 'record',
-                                 system_date=None, warm_cache=False)
-        response['data'].pop('scenario_id')
-        self.assertEqual(response['data'], {
-            'status': 'record',
-            'message': 'Record mode initiated....',
-            'session': '1',
-            'scenario': 'localhost:foo'
+class TestBigResponse(Base):
+    def test_exec_first_commands(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/big/big.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+
+class TestDelays(Base):
+    def test_delay(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=delay_1&delay_type=fixed&milliseconds=1000'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_1'),
+            callback=self.stop, method="POST",
+            body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue(float(response.request_time) > 0.999)
+
+    def test_changing_delay(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=delay_1&delay_type=fixed&milliseconds=500'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?'
+                                            'name=delay_1&delay_type=fixed&milliseconds=70'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_1'),
+            callback=self.stop, method="POST",
+            body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue(float(response.request_time) > 0.069)
+
+    def test_delete(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?name='
+                                            'delay_1&delay_type=fixed&milliseconds=500'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/delete/delay_policy?name=delay_1'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/get/delay_policy'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(payload['data'], {})
+
+    def test_mulitiple_delete(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?name='
+                                            'delay_1&delay_type=fixed&milliseconds=500'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?name='
+                                            'delay_2&delay_type=fixed&milliseconds=500'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/delete/delay_policy'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/get/delay_policy'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(payload['data'], {})
+
+    def test_multiple_delete_by_name(self):
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?name='
+                                            'delay_1&delay_type=fixed&milliseconds=500'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/put/delay_policy?name='
+                                            'delay_2&delay_type=fixed&milliseconds=500'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/delete/delay_policy?'
+                                            'name=delay_1&name=delay_2'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/get/delay_policy'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(payload['data'], {})
+
+
+class TestMatching(Base):
+    def test_no_match_found(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/matcher1.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(2, len(sr))
+        self.assertEqual('Hello from advanced matching.\n', sr[0])
+        self.assertTrue('error' in sr[1])
+        self.assertEqual('E017:No matching response found',
+                         sr[1]['error']['message'])
+
+
+class TestExport(Base):
+    def test_export(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=first'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue('yaml_links' in payload['data'])
+        self.assertEqual(5, len(payload['data']['yaml_links']))
+        self.assertEqual(1, len([x for x in payload['data']['yaml_links'] \
+                                 if x[0] == 'first.yaml']))
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/delete/stubs?scenario=first'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # load from the export
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_first/yaml_format/first.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_export_order(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/exports/ordering/order.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=order&session_id=x'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        export_dir = payload['data']['export_dir_path']
+
+        # loading yaml configuration file
+        with open(os.path.join(export_dir, 'order.yaml'), 'r') as stream:
+            config = yaml.load(stream)
+            self.assertTrue("recording" in config)
+            self.assertEqual(config['recording']['scenario'], 'order')
+            self.assertEqual(config['recording']['session'], 'order_x')
+            self.assertEqual(len(config['recording']['stubs']), 3)
+            self.assertTrue({'file': 'order_x_0.json'} in config['recording']['stubs'])
+
+        for stub_no in [0, 1, 2]:
+            file_path = os.path.join(export_dir,
+                                     'order_x_{0}.json'.format(stub_no))
+            with open(file_path) as f:
+                stub = json.loads(f.read())
+                self.assertEqual(stub.get('request').get('bodyPatterns').get(
+                    'contains')[0], str(stub_no))
+
+    def test_runnable_export(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=tracking_level&value=full'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=first&runnable=true&playback_session=first_1'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue('yaml_links' in payload['data'])
+
+        self.assertEqual(7, len(payload['data']['yaml_links']))
+        self.assertTrue('runnable' in payload['data'])
+        runnable = payload['data']['runnable']
+        self.assertEqual(runnable.get('playback_session'), 'first_1')
+        self.assertEqual(runnable.get('number_of_playback_requests'), 1)
+
+        self.assertEqual(1, len([x for x in payload['data']['yaml_links'] \
+                                 if x[0] == 'first.yaml']))
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/delete/stubs?scenario=first'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # load from the export
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_first/yaml_format/first.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_runnable_export2(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=tracking_level&value=full'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=first&runnable=true&playback_session=first_1'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue('yaml_links' in payload['data'])
+
+        self.assertEqual(7, len(payload['data']['yaml_links']))
+        self.assertTrue('runnable' in payload['data'])
+        runnable = payload['data']['runnable']
+        self.assertEqual(runnable.get('playback_session'), 'first_1')
+        self.assertEqual(runnable.get('number_of_playback_requests'), 1)
+        self.assertEqual(1, len([x for x in payload['data']['yaml_links'] \
+                                 if x[0] == 'first.yaml']))
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/delete/stubs?scenario=first'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # load from the export
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_first/yaml_format/first.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_runnable_export_found(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/multi_play.commands&nplays=1&nsessions=5'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=multi_play&runnable=true&playback_session=multi_play_2'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue('yaml_links' in payload['data'])
+        self.assertEqual(7, len(payload['data']['yaml_links']))
+        self.assertTrue('runnable' in payload['data'])
+        runnable = payload['data']['runnable']
+        self.assertEqual(runnable.get('playback_session'), 'multi_play_2')
+        self.assertEqual(runnable.get('number_of_playback_requests'), 1)
+        self.assertEqual(1, len([x for x in payload['data']['yaml_links'] \
+                                 if x[0] == 'multi_play.yaml']))
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/delete/stubs?scenario=multi_play'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # load from the export
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_multi_play/yaml_format/multi_play.yaml'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_runnable_export_found2(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/multi_play.commands&nplays=5&nsessions=5'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=multi_play&runnable=true&playback_session=multi_play_2'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue('yaml_links' in payload['data'])
+        self.assertEqual(15, len(payload['data']['yaml_links']))
+        self.assertTrue('runnable' in payload['data'])
+        runnable = payload['data']['runnable']
+        self.assertEqual(runnable.get('playback_session'), 'multi_play_2')
+        self.assertEqual(runnable.get('number_of_playback_requests'), 5)
+
+        self.assertEqual(1, len([x for x in payload['data']['yaml_links'] \
+                                 if x[0] == 'multi_play.yaml']))
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/delete/stubs?scenario=multi_play'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # load from the export
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/exports/localhost_multi_play/yaml_format/multi_play.yaml'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_export_module(self):
+        # load some stubs
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/ext/xslt/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # export them
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=mangler_xslt'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # delete
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/delete/stubs?scenario=mangler_xslt'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # load from the export
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_mangler_xslt/yaml_format/mangler_xslt.yaml'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+
+class TestGeneralFunctionality(Base):
+    def test_stub_count(self):
+        # load some stubs
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # count them
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/stubcount?scenario=first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"count": 1, "scenario": "first", "host": "localhost"}}
+        self.assertEqual(payload, expect)
+
+    def test_stub_count_with_host(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/stubcount?host=another'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"count": 0, "scenario": "all", "host": "another"}}
+        self.assertEqual(payload, expect)
+
+    def test_stub_count_all_scenarios(self):
+        # load some stubs
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/matcher1.commands'),
+                               self.stop)
+        response = self.wait()
+
+        # count them
+        self.http_client.fetch(self.get_url('/stubo/api/get/stubcount'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"count": 2, "scenario": "all", "host": "localhost"}}
+        self.assertEqual(payload, expect)
+
+    def test_get_status(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/status'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"cache_server": {"status": "ok", "local": True},
+                           "info": {
+                               "cluster": self.app.settings.get('cluster_name'),
+                               "graphite_host": self.app.settings.get('graphite.host'),
+                           }, "database_server": {"status": "ok"}}}
+        self.assertEqual(payload, expect)
+
+    def test_get_scenario_status(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/status?scenario=first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+
+        expect = {"version": self.app.settings.get('stubo_version'),
+                  "data": {"cache_server": {"status": "ok", "local": True},
+                           "info": {
+                               "cluster": self.app.settings.get('cluster_name'),
+                               "graphite_host": self.app.settings.get('graphite.host'),
+                           }, "database_server": {"status": "ok"},
+                           "sessions": [[u'first_1', u'playback']]}}
+        self.assertEqual(payload, expect)
+
+    def test_get_session_status(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/status?session=first_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        session = payload['data']['session']
+        self.assertEqual(session['session'], 'first_1')
+        self.assertEqual(session['status'], 'playback')
+        self.assertEqual(session['scenario'], 'localhost:first')
+
+    def test_get_version(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/version'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        expect = {"version": self.app.settings.get('stubo_version')}
+        self.assertEqual(payload, expect)
+
+
+class TestGetResponseWithHTTPHeaders(Base):
+    def test_get_not_supported(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/response/foobar'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 405)
+
+    def test_post_missing_stb_session(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/response/foobar'),
+                               callback=self.stop,
+                               method="POST", body="hello")
+
+        response = self.wait()
+        self.assertEqual(response.code, 400)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual("session not supplied in headers.",
+                         payload['error']['message'])
+
+    def test_post_fails_if_session_not_found(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/response/foobar'),
+                               callback=self.stop, method="POST", body="hello",
+                               headers={'ba_stb_session': 'bar',
+                                        'ba_stb_scenario': 'foo'})
+        response = self.wait()
+        self.assertEqual(response.code, 400)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        # shows its extracted the session from the header 
+        self.assertEqual("session not found - localhost:foo_bar",
+                         payload['error']['message'])
+
+    def test_post_ok(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response/foobar'),
+                               callback=self.stop, method="POST",
+                               body="get my stub", headers={
+                'ba_stb_scenario': 'first',
+                'ba_stb_session': '1'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertIn("Hello 2 World", response.body)
+
+    def test_post_missing_stb_scenario(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response/foobar'),
+                               callback=self.stop, method="POST",
+                               body="get my stub",
+                               headers={'ba_stb_session': 'first_1'})
+        response = self.wait()
+        self.assertEqual(response.code, 400)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        # shows its extracted the session from the header 
+        self.assertEqual("scenario parameter not supplied in headers.",
+                         payload['error']['message'])
+
+    def test_url_param_takes_precedence(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response/foobar?session=pickme'),
+            callback=self.stop, method="POST",
+            body="get my stub", headers={
+                'ba_stb_scenario': 'first',
+                'ba_stb_session': '1'})
+        response = self.wait()
+        payload = json.loads(response.body)
+        self.assertEqual("session not found - localhost:pickme",
+                         payload['error']['message'])
+
+
+class TestUseRequestInResponse(Base):
+    def test_post_request_in_response_ok(self):
+        '''Pick up the request text for use in the stubbed response'''
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_1'),
+            callback=self.stop, method="POST",
+            body="<userid>abc123</userid>")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertIn("Hello to abc123", response.body)
+
+
+class TestEncoding(Base):
+    def test_utf8_in_all(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/encoding/utf8all.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        stubo_response = self.db.tracker.find_one({'function': 'get/response'},
+                                                  {'stubo_response': 1})['stubo_response']
+        self.assertTrue(u'A*\xa3$' in stubo_response)
+
+
+class TestTextEncoding(Base):
+    def test_utf8_request(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/encoding/text/1.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        stubo_response = self.db.tracker.find_one({'function': 'get/response'},
+                                                  {'stubo_response': 1})['stubo_response']
+        self.assertEqual('hello', stubo_response)
+
+    def test_utf8_in_all(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/encoding/text/utf8_in_all.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        stubo_response = self.db.tracker.find_one({'function': 'get/response'},
+                                                  {'stubo_response': 1})['stubo_response']
+        self.assertTrue(u'A*\xa3$' in stubo_response)
+
+
+class TestPrivateVirtualStubo(Base):
+    def get_url(self, path, host=None):
+        host = host or 'localhost'
+        """Returns an absolute url for the given path on the test server."""
+        return '%s://%s:%s%s' % (self.get_protocol(), host,
+                                 self.get_http_port(), path)
+
+    def test_virtual_host(self):
+        # start a session 'first' in playback mode on localhost,
+        # localhost get/status should  show the session
+        # 127.0.0.1 get/status should not show the session
+        # localhost get/response should works
+        # 127.0.0.1 get/response should fail
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/get/status?session=first_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(response.code, 200)
+        self.assertEqual(payload['data']['session'].get('status'), 'playback')
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/get/status?session=first_1',
+                         host='127.0.0.1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(response.code, 200)
+        self.assertEqual(payload['data']['session'], {})
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_1'), callback=self.stop,
+            method="POST", body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertIn("Hello 2 World", response.body)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/get/response?session=first_1',
+                         host='127.0.0.1'), callback=self.stop,
+            method="POST", body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        self.assertEqual(response.code, 400)
+        payload = json.loads(response.body)
+        self.assertEqual(payload['error'].get('message'),
+                         "session not found - 127.0.0.1:first_1")
+
+    def test_mixedcase_host(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/get/status?scenario=first',
+                         host='LOcalhost'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(response.code, 200)
+        self.assertEqual(payload['data']['sessions'][0], ["first_1", "dormant"])
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/begin/session?scenario=first&session=first_1&mode=playback',
+                         host='LOcalhost'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=first_1', host='LOcalhost'),
+                               self.stop, method='POST', body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+
+class TestState(Base):
+    def test_state(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/state/converse.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(3, len(sr))
+        self.assertTrue('PNR 12345 with standard meal' in sr[0])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' in sr[1])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[2])
+
+    def test_state_loop(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/state/converse_loop.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(6, len(sr))
+        self.assertTrue('PNR 12345 with standard meal' in sr[0])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' \
+                        in sr[1])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[2])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[3])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' \
+                        in sr[4])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[5])
+
+
+class TestTextState(Base):
+    def test_state(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/state/text/converse.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(3, len(sr))
+        self.assertTrue('PNR 12345 with standard meal' in sr[0])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' in sr[1])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[2])
+
+    def test_state_reset(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/state/text/converse_reset.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(4, len(sr))
+        self.assertTrue('PNR 12345 with standard meal' in sr[0])
+        self.assertTrue('PNR 12345 with standard meal' in sr[1])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' in sr[2])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[3])
+
+    def test_state_loop(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/state/text/converse_loop.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(6, len(sr))
+        self.assertTrue('PNR 12345 with standard meal' in sr[0])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' \
+                        in sr[1])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[2])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[3])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' \
+                        in sr[4])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[5])
+
+    def test_multi_state(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/state/text/converse_multi.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(6, len(sr))
+        self.assertTrue('PNR 12345 with standard meal' in sr[0])
+        self.assertTrue('PNR 12345 has been updated (meal type change)' in sr[1])
+        self.assertTrue('PNR 12345 with veggy meal' in sr[2])
+        self.assertTrue('response d' in sr[3])
+        self.assertTrue('response e' in sr[4])
+        self.assertTrue('response f' in sr[5])
+
+    def test_duplicate_stubs(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/put/stub?session=first_1'), callback=self.stop,
+                               method="POST", body="||textMatcher||abcdef||response||a response")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # insert a duplicate stub, which should not be loaded
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/stub?session=first_1'), callback=self.stop,
+            method="POST", body="||textMatcher||abcdef||response||a response")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubs = list(self.db.scenario_stub.find())
+        self.assertTrue(len(stubs[0]['stub'].get('response')), 2)
+
+    def test_ignore_duplicate_stubs(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/stub?session=first_1&stateful=false'),
+            callback=self.stop,
+            method="POST", body="||textMatcher||abcdef||response||a response")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # insert a duplicate stub, which should not be loaded
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/stub?session=first_1&stateful=false'),
+            callback=self.stop,
+            method="POST", body="||textMatcher||abcdef||response||a response")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubs = list(self.db.scenario_stub.find())
+        self.assertTrue(len(stubs[0]['stub'].get('response')), 1)
+
+
+class TestSmartCommands(Base):
+    def test_smart_commands(self):
+        """
+        Demonstrate that command files can be Tornado templates with
+        embedded code snippets. See the command file used in the next line.
+        """
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/smart.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        stubo_response = self.db.tracker.find_one({'function': 'get/response'},
+                                                  {'stubo_response': 1})['stubo_response']
+        self.assertEqual('Hello 2 World', stubo_response)
+
+        cmds = ['delete/stubs?scenario=smart',
+                'begin/session?scenario=smart&session=smart_1&mode=record',
+                'put/stub?session=smart_1,first.textMatcher,first.response',
+                'end/session?session=smart_1',
+                'begin/session?scenario=smart&session=smart_1&mode=playback',
+                'get/response?session=smart_1,first.request',
+                'end/session?session=smart_1']
+        for cmd in cmds:
+            self.assertTrue(cmd in response.body)
+
+        stubo_responses = self.db.tracker.find({'function': 'get/response'})
+        sr = []
+        for resp in stubo_responses:
+            sr.append(resp['stubo_response'])
+        self.assertEqual(3, len(sr))
+        self.assertTrue('Hello' in sr[0])
+        self.assertTrue('Hello' in sr[1])
+        self.assertTrue('Hello' in sr[2])
+
+    def test_smart_commands_with_params(self):
+        """
+        send arguments into a command file for its use.
+        """
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/accept/smart_arg.commands&scen=bob&session='
+                                            'smart_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubo_response = self.db.tracker.find_one({'function': 'get/response'},
+                                                  {'stubo_response': 1})['stubo_response']
+        self.assertEqual('Hello 2 World', stubo_response)
+
+
+class TestYAMLImport(Base):
+    def _test_archive(self, archive):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/rest/yaml/{0}'.format(archive)),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        response = json.loads(response.body)
+        self.assertEqual(response['data']['number_of_errors'], 0)
+        self.assertEqual(response['data']['number_of_requests'], 11)
+
+    def test_tar_gzip(self):
+        self._test_archive('yaml.tar.gz')
+
+    def test_zip(self):
+        self._test_archive('yaml.zip')
+
+    def test_jar(self):
+        self._test_archive('yaml.zip')
+
+    def test_tar(self):
+        self._test_archive('yaml.tar')
+
+    def test_zip_from_export(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/rest/yaml/1.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=rest'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_rest/yaml_format/rest.zip'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        response = json.loads(response.body)
+        self.assertEqual(response['data']['number_of_errors'], 0)
+        self.assertEqual(response['data']['number_of_requests'], 5)
+
+    def test_gzip_from_export(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/tests/rest/yaml/1.yaml'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=rest'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_rest/yaml_format/rest.tar.gz'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        response = json.loads(response.body)
+        self.assertEqual(response['data']['number_of_errors'], 0)
+        self.assertEqual(response['data']['number_of_requests'], 5)
+
+    def test_post_exec_cmds(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_rest/yaml_format/rest.yaml'), callback=self.stop,
+                               method="POST", body="")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+class TestMultipleDateRolling(Base):
+    """
+    Tests for multiple date rolling when format is YYYY:MM:DD
+    """
+
+    def _import_module(self):
+        cache = Cache('localhost')
+        _ = cache.set_stubo_setting("tracking_level", "full", True)
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/tests/multidate/response.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_multidate(self):
+        # import from commands file
+        self._import_module()
+
+        self.http_client.fetch(self.get_url('/api/v2/tracker/records'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        json_body = json.loads(response.body)
+
+        tracker_items = json_body['data']
+
+        tracker = Tracker(self.db)
+
+        for item in tracker_items:
+            if item['function'] == 'get/response':
+                record_id = item['id']
+                obj = tracker.find_tracker_data_full(record_id)
+                self.assertTrue('2014-06-11' in obj['stubo_response'])
+                self.assertTrue('2014-06-10' in obj['stubo_response'])
+                self.assertTrue('2014-06-08' in obj['stubo_response'])
+
+
+class TestCommandsImport(Base):
+    def _test_archive(self, archive):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/exports/localhost_split/{0}'.format(archive)),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        cmds = [
+            'put/module?name=/static/cmds/tests/ext/split/splitter.py',
+            'delete/stubs?scenario=split&force=true',
+            'begin/session?scenario=split&session=split_1&mode=record',
+            'put/stub?session=split_1&ext_module=splitter&tracking_level=full,1.request,1.response',
+            'end/session?session=split_1',
+            'begin/session?scenario=split&session=split_1&mode=playback',
+            'get/response?session=split_1&tracking_level=full,1.request',
+            'end/session?session=split_1'
+        ]
+
+        for cmd in cmds:
+            self.assertTrue(cmd in response.body)
+
+    def test_tar_gzip(self):
+        self._test_archive('split.tar.gz')
+
+    def test_zip(self):
+        self._test_archive('split.zip')
+
+    def test_tar(self):
+        self._test_archive('split.tar')
+
+    def test_zip_from_export(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_first/yaml_format/first.zip'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        cmds = ['delete/stubs?scenario=first',
+                'begin/session?scenario=first&session=first_1&mode=record',
+                'put/stub?session=first_1,first.textMatcher,first.response',
+                'end/session?session=first_1']
+        from urlparse import urlparse
+
+        for cmd in cmds:
+            self.assertTrue(urlparse(cmd).path in response.body)
+
+    def test_tar_gzip_from_export(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_first/yaml_format/first.tar.gz'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        cmds = ['delete/stubs?scenario=first',
+                'begin/session?scenario=first&session=first_1&mode=record',
+                'put/stub?session=first_1,first.textMatcher,first.response',
+                'end/session?session=first_1']
+        from urlparse import urlparse
+
+        for cmd in cmds:
+            self.assertTrue(urlparse(cmd).path in response.body)
+
+    def test_post_exec_cmds(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/demo/first.commands'), callback=self.stop,
+                               method="POST", body="")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def test_export_with_module(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/exports/export_with_module/commandsTwo.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/export?scenario=first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_first/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.assertTrue("delete/stubs?scenario=first" in response.body)
+        self.assertTrue("system_date" in response.body)
+        self.assertTrue("stubbedSystemDate" in response.body)
+        self.assertTrue("stub_created_date" in response.body)
+
+    def test_export_stub_with_multiple_responses(self):
+        # Importing the commands
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/exports/export_with_multiple_response/ECSelling124Test.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # Verifying the stub count
+        self.http_client.fetch(self.get_url('/stubo/api/get/stubcount?scenario=ECSelling124Test'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        json_body = json.loads(response.body)
+        stub_data = json_body['data']
+        self.assertEqual(stub_data['count'], 1)
+
+        # Exporting the commands
+        self.http_client.fetch(self.get_url('/stubo/api/get/export?scenario=ECSelling124Test'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/exports/localhost_multiple_response/ECSelling124Test.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.assertTrue("delete/stubs?scenario=ECSelling124Test" in response.body)
+        self.assertTrue("system_date" in response.body)
+        self.assertTrue("stubbedSystemDate" in response.body)
+        self.assertTrue("stub_created_date" in response.body)
+
+
+class TestSession(Base):
+    def test_duplicate(self):
+        from stubo.model.db import Scenario
+
+        scenario = Scenario()
+        scenario.insert(name='localhost:first', status='dormant')
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 400)
+
+    def test_change_scenario_name(self):
+        """
+
+        Testing scenario change name functionality. This test is under TestSession because scenarios are created
+        through sessions and are related to them. Updating a test name requires to update cache as well.
+        In this case - copying all sessions from particular scenario, wiping scenario cache and then repopulating
+        cache with updated scenario name and sessions.
+        """
+        # creating new scenario and session, setting record mode to prepare it for stub insertion
+        scenario_old_name = 'first_old_name'
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            '%s&session=first_1&mode=record' % scenario_old_name), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # checking scenario
+        self.http_client.fetch(self.get_url('/stubo/api/get/status?scenario=%s' % scenario_old_name), self.stop)
+        response = self.wait()
+        self.assertTrue('first_1' in response.body)
+
+        # insert stub
+        self._test_stub_insert()
+
+        # change scenario name
+        scenario_new_name = 'first_new_name'
+        self._change_scenario_name(scenario_old_name=scenario_old_name, scenario_new_name=scenario_new_name)
+
+        # check scenario again with new name
+        self.http_client.fetch(self.get_url('/stubo/api/get/status?scenario=%s' % scenario_new_name), self.stop)
+        response = self.wait()
+        # check if the session is still attached to this scenario
+        self.assertTrue('first_1' in response.body)
+
+    def _test_stub_insert(self):
+        # setting session to record mode
+        """
+
+        Helper function to insert stub during record
+        """
+        self.http_client.fetch(self.get_url('/stubo/api/put/stub?session=first_1'),
+                               callback=self.stop,
+                               method="POST",
+                               body="||textMatcher||abcdef||response||a response")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+    def _change_scenario_name(self, scenario_old_name, scenario_new_name):
+        """
+        Changes scenario name, checks whether returned data meets expectations
+        :param scenario_old_name: <string> without host, only scenario key name
+        :param scenario_new_name: <string> without host, only scenario key name
+        """
+        self.assertIsNotNone(scenario_old_name, "Old scenario name is none!")
+        self.assertIsNotNone(scenario_new_name, "New scenario name is none!")
+        self.http_client.fetch(
+            self.get_url('/stubo/api/put/scenarios/%s?new_name=%s' % (scenario_old_name, scenario_new_name)), self.stop)
+        response = self.wait()
+        if response.code == 500:
+            log.debug(response)
+        self.assertEqual(response.code, 200, response.error)
+        response_dict = json.loads(response.body)
+        # checking if stub was found and updated
+        self.assertEqual(response_dict['Stubs changed'], 1)
+        self.assertEqual(response_dict['Scenarios changed'], 1)
+        # splitting into two parts, because full name also contains hostname
+        self.assertEqual(response_dict['Old name'].split(':')[1], scenario_old_name)
+        self.assertEqual(response_dict['New name'].split(':')[1], scenario_new_name)
+
+    def test_change_non_existing_scenario_name(self):
+        """
+
+        Test scenario name change when non existent scenario name is provided
+        """
+        scenario_name_that_doesnt_exist = 'foobar1000'
+        self.http_client.fetch(
+            self.get_url('/stubo/api/put/scenarios/%s?new_name=%s' % (
+                scenario_name_that_doesnt_exist, 'new_name')), self.stop)
+        response = self.wait()
+        response_dict = json.loads(response.body)
+        self.assertTrue("error" in response_dict.keys())
+        self.assertTrue('Scenario not found' in response_dict['error'])
+        self.assertEqual(response.code, 400)
+
+    def test_change_name_without_name(self):
+        """
+
+        Test scenario name change when query is missing
+        """
+        self.http_client.fetch(
+            self.get_url('/stubo/api/put/scenarios/some_name'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 412)
+        self.assertTrue('Precondition failed: name not supplied' in response.error.message)
+
+    def test_change_name_blank(self):
+        """
+
+        Test scenario name change when new name is empty
+        """
+        # creating new scenario and session, setting record mode to prepare it for stub insertion
+        scenario_old_name = 'first_old_name_1'
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            '%s&session=first_change_name&mode=record' % scenario_old_name), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        # providing '' to new change
+        self.http_client.fetch(
+            self.get_url('/stubo/api/put/scenarios/%s?new_name=' % scenario_old_name), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 412)
+        self.assertTrue('Precondition failed: name not supplied' in response.error.message)
+
+    def test_change_name_with_illegalcharacters(self):
+        # providing '' to new change
+        """
+
+        Passes illegal characters to stubo to check for response code. Expected response code - 400
+        """
+        name = '@#$name'
+        self.http_client.fetch(
+            self.get_url('/stubo/api/put/scenarios/some_name?new_name=%s' % name), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 400)
+        self.assertTrue('Illegal characters supplied' in response.error.message)
+
+    def test_end_session(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/end/session?session='
+                                            'first_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(payload['data'], {"message": "Session ended"})
+
+    def test_end_sessions(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/end/sessions?scenario='
+                                            'first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(payload['data'],
+                         {u'first_1': {u'message': u'Session ended'}})
+
+    def test_end_sessions2(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/stub?session=first_1'), callback=self.stop,
+            method="POST", body="||textMatcher||abcdef||response||a response")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/end/session?session=first_1'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=playback'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_2&mode=playback'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/end/sessions?scenario='
+                                            'first'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(payload['data'],
+                         {u'first_1': {u'message': u'Session ended'},
+                          u'first_2': {u'message': u'Session ended'}})
+
+    def test_warm_cache(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/stub?session=first_1'), callback=self.stop,
+            method="POST", body="||textMatcher||abcdef||response||a response")
+        self.wait()
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/end/session?session=first_1'), callback=self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=playback&warm_cache=true'),
+                               callback=self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        from stubo.cache import key_exists
+
+        self.assertTrue(key_exists('localhost:first:request'))
+
+    def test_stateful_warm_cache(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=record'), self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/stub?session=first_1'), callback=self.stop,
+            method="POST", body="||textMatcher||abcdef||response||response1")
+        self.wait()
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/stub?session=first_1'), callback=self.stop,
+            method="POST", body="||textMatcher||abcdef||response||response2")
+        self.wait()
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/end/session?session=first_1'), callback=self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'first&session=first_1&mode=playback&warm_cache=true'),
+                               callback=self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        from stubo.cache import key_exists
+
+        self.assertTrue(key_exists('localhost:first:request'))
+        self.assertTrue(key_exists('localhost:first:request_index'))
+
+    def test_session_already_ended(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/end/session?scenario=first&session=first_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers["Content-Type"],
+                         'application/json; charset=UTF-8')
+        payload = json.loads(response.body)
+        self.assertEqual(response.code, 200)
+        self.assertEqual(payload['data']['message'], 'Session ended')
+
+
+""" requires graphite stats server
+class TestStats(Base):
+    
+    def test_recent(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/stats?cluster=aws_cluster1&from=-1mins'), self.stop)
+        response = self.wait()
+        self.assertTrue('application/json' in response.headers.get("Content-Type")) 
+        payload = json.loads(response.body) 
+        self.assertEqual(payload.get('data'),
+          {"metric": "latency", "percent_above_value": 50, 
+           "target":
+           "averageSeries(stats.timers.stubo.aws_cluster1.ba-perf-vip1.*.stuboapi.get_response.latency.mean_90)",
+           "pcent": 0.0,
+           "from" : "-1mins",
+           "to" : "now"})
+        
+    def test_higher_than_1sec(self):
+        self.http_client.fetch(
+        self.get_url('/stubo/api/get/stats?cluster=aws_cluster1&from=-1mins&percent_above_value=1000'), self.stop)
+        response = self.wait()
+        self.assertTrue('application/json' in response.headers.get("Content-Type")) 
+        payload = json.loads(response.body) 
+        self.assertEqual(payload.get('data'),
+          {"metric": "latency", "percent_above_value": 1000, 
+           "target":
+           "averageSeries(stats.timers.stubo.aws_cluster1.ba-perf-vip1.*.stuboapi.get_response.latency.mean_90)",
+           "pcent": 0.0,
+           "from" : "-1mins",
+           "to" : "now"})
+        
+    def test_unknown_cluster(self):
+        self.http_client.fetch(self.get_url(
+        '/stubo/api/get/stats?cluster=bogus&from=-1mins&percent_above_value=1000'), self.stop)
+        response = self.wait()
+        self.assertTrue('application/json' in response.headers.get("Content-Type"))
+        payload = json.loads(response.body) 
+        self.assertEqual(payload['error']['code'], 500)
+        
+    def test_bad_request(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/stats?cluster=aws_cluster1&from=xxxx'), self.stop)
+        response = self.wait()
+        self.assertTrue('application/json' in response.headers.get("Content-Type"))
+        payload = json.loads(response.body) 
+        self.assertEqual(payload['error']['code'], 500)  
+        
+    def test_bad_arg(self):
+        self.http_client.fetch(
+        self.get_url('/stubo/api/get/stats?cluster=aws_cluster1&from=-1mins&metric=bogus'), self.stop)
+        response = self.wait()
+        self.assertTrue('application/json' in response.headers["Content-Type"])
+        payload = json.loads(response.body) 
+        self.assertEqual(payload['error']['code'], 400) 
+"""
+
+
+class TestTracker(Base):
+    def test_response_size(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/delay_policy?name=foo'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/delay_policy'})
+        self.assertEqual(int(response.headers['Content-Length']),
+                         tracker['response_size'])
+
+    def test_request_param(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/delay_policy?name=foo'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/delay_policy'})
+        self.assertTrue('request_params' in tracker)
+        self.assertEqual(tracker['request_params'].get('name'), 'foo')
+
+    def test_request_header(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/delay_policy?name=foo'), self.stop,
+            headers={'Foo': 'bar'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/delay_policy'})
+        self.assertTrue('request_headers' in tracker)
+        self.assertEqual(tracker['request_headers'].get('Foo'), 'bar')
+
+    def test_request_param_multiple_values(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/delay_policy?name=foo&name=bar'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/delay_policy'})
+        self.assertTrue('request_params' in tracker)
+        self.assertEqual(tracker['request_params'].get('name'), ['foo', 'bar'])
+
+    def test_request_param_multiple_values2(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/delay_policy?name=foo&another_key=bar'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/delay_policy'})
+        self.assertTrue('request_params' in tracker)
+        self.assertEqual(tracker['request_params'].get('name'), 'foo')
+        self.assertEqual(tracker['request_params'].get('another_key'), 'bar')
+
+    def test_request_param_skip_dotted_name(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/delay_policy?name=foo&bar.1=xxx'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/delay_policy'})
+        self.assertTrue('request_params' in tracker)
+        self.assertEqual(tracker['request_params'].get('bar.1'), None)
+        self.assertEqual(tracker['request_params'].get('name'), 'foo')
+
+    def test_request_param_skip_dotted_name_in_headers(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/delay_policy?name=foo&bar.1=xxx'), self.stop,
+            headers={'bar.1': 'hello'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/delay_policy'})
+        self.assertTrue('request_params' in tracker)
+        self.assertEqual(tracker['request_params'].get('bar.1'), None)
+        self.assertEqual(tracker['request_params'].get('name'), 'foo')
+
+    def test_request_session_param_in_headers(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/cmds/tests/accept/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/get/response'),
+                               self.stop, method='POST', body="get my stub",
+                               headers={'Stubo-Request-Session': 'first_1'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/response'})
+        self.assertEqual(tracker['request_headers'].get(
+            'Stubo-Request-Session'), 'first_1')
+
+    def test_request_session_legacy_param_in_headers(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/cmds/tests/accept/first_setup.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/get/response'),
+                               self.stop, method='POST', body="get my stub",
+                               headers={'stb_session': '1', 'stb_scenario': 'first'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'get/response'})
+        self.assertEqual(tracker['request_headers'].get(
+            'Stubo-Request-Session'), 'first_1')
+
+    def test_stubo_response_is_trimmed(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/exec/cmds?cmdFile=/static/cmds/demo/first.commands'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        tracker = self.db.tracker.find_one({'function': 'exec/cmds'})
+        self.assertEqual(int(response.headers['Content-Length']), tracker['response_size'])
+        self.assertTrue(int(response.headers['Content-Length']) > len(tracker['stubo_response']))
+
+    def test_minimal_tracking_level(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/cmds/tests/accept/minimal_logging.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        tracker = self.db.tracker.find_one({'function': 'get/response'})
+        # minimal or full tracking level items
+        self.assertEqual(tracker['function'], "get/response")
+        self.assertTrue(tracker['start_time'] is not None)
+        self.assertEqual(tracker['return_code'], 200)
+        self.assertTrue(tracker['server'] is not None)
+        self.assertTrue(tracker['host'] is not None)
+        self.assertEqual(tracker['request_params']['session'], "first_1")
+        self.assertEqual(tracker['scenario'], "first")
+        self.assertTrue(tracker['duration_ms'] is not None)
+        self.assertTrue(tracker['remote_ip'] is not None)
+        self.assertTrue(tracker['delay'] is not None)
+        self.assertEqual(tracker['stubo_response'], "Hello 2 World")
+
+        # not for minimal tracking as these can be big.
+        self.assertFalse('request_text' in tracker)
+        self.assertFalse('matchers' in tracker)
+        self.assertFalse('raw_response' in tracker)
+        self.assertFalse('encoded_response' in tracker)
+
+    def test_full_tracking_level(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdFile='
+                                            '/static/cmds/tests/accept/full_logging.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        tracker = self.db.tracker.find_one({'function': 'get/response'})
+        # minimal or full tracking level items
+        self.assertEqual(tracker['function'], "get/response")
+        self.assertTrue(tracker['start_time'] is not None)
+        self.assertEqual(tracker['return_code'], 200)
+        self.assertTrue(tracker['server'] is not None)
+        self.assertTrue(tracker['host'] is not None)
+        self.assertEqual(tracker['request_params']['session'], "first_1")
+        self.assertEqual(tracker['scenario'], "first")
+        self.assertTrue(tracker['duration_ms'] is not None)
+        self.assertTrue(tracker['remote_ip'] is not None)
+        self.assertTrue(tracker['delay'] is not None)
+        self.assertIn("Hello 2 World this is", tracker['stubo_response'])
+
+        # full tracking only 
+        self.assertEqual(tracker.get('tracking_level'), "full")
+        self.assertEqual(tracker['request_text'],
+                         'timestamp: 09:23:45\nget my stubs\n')
+        self.assertTrue('trace' in tracker)
+
+
+class TestSetting(Base):
+    def test_set(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=foo&value=bar'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "new": "true", "host": "localhost", "all": False, "foo": "bar"
         })
 
-    def test_bad_mode(self):
-        from stubo.service.api import begin_session
-        from stubo.exceptions import HTTPClientError
+    def test_modify(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=foo&value=bar'), self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=foo&value=bar2'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get("Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "new": "false", "host": "localhost", "all": False, "foo": "bar2"
+        })
 
-        self._make_scenario('localhost:foo')
-        with self.assertRaises(HTTPClientError):
-            begin_session(self.make_request(), 'foo', '1', 'xxx',
-                          system_date=None, warm_cache=False)
+    def test_get(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=foo&value=bar'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/setting?setting=foo'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "host": "localhost", "all": False, "foo": "bar"
+        })
 
-    def test_play(self):
-        from stubo.service.api import begin_session
-        self._make_scenario('localhost:foo')
-        from stubo.model.stub import Stub
+    def test_get_all(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=foo&value=bar'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?setting=foo2&value=bar2'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
 
-        doc = dict(scenario='localhost:foo', stub=Stub({
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/setting?'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "host": "localhost", "all": False,
+            "settings": {"foo": "bar", "foo2": "bar2"}
+        })
+
+    def test_empty_get(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/setting?setting=foo'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "host": "localhost", "all": False, "foo": None
+        })
+
+    def test_global_set(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?host=all&setting=foo&value=bar'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "new": "true", "host": "localhost", "all": True, "foo": "bar"
+        })
+
+    def test_global_modify(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?host=all&setting=foo&value=bar'), self.stop)
+        self.wait()
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?host=all&setting=foo&value=bar2'),
+            self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "new": "false", "host": "localhost", "all": True, "foo": "bar2"
+        })
+
+    def test_global_get(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/put/setting?host=all&setting=foo&value=bar'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/setting?host=all&setting=foo'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "host": "localhost", "all": True, "foo": "bar"
+        })
+
+    def test_global_empty_get(self):
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/setting?host=all&setting=foo'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertTrue('application/json' in response.headers.get(
+            "Content-Type"))
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'), {
+            "host": "localhost", "all": True, "foo": None
+        })
+
+
+class TestTextTemplates(Base):
+    def test_matcher(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/matcher/text/all.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        result = list(self.db.tracker.find({'function': 'get/response'}))
+        self.assertEqual(1, len(result))
+        response = result[0]['stubo_response']
+        self.assertEqual(response, '<response>you found me</response>')
+
+    def test_dateroll_args(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/dateroll/text/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        result = list(self.db.tracker.find({'function': 'get/response'}))
+        self.assertEqual(1, len(result))
+        response = result[0]['stubo_response']
+        import datetime
+
+        d = datetime.date.today()
+        self.assertTrue('<putstub_arg>this stub was recorded at {0}'.format(
+            d) in response)
+        self.assertTrue('<getresponse_arg>this stub was played at {0}'.format(
+            d + datetime.timedelta(1)) in response)
+
+
+class TestTemplates(Base):
+    def test_matcher(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/matcher/matcher.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        result = list(self.db.tracker.find({'function': 'get/response'}))
+        self.assertEqual(1, len(result))
+        response = result[0]['stubo_response']
+        self.assertEqual(response, '<response>you found me</response>')
+
+    def test_dateroll_args(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/dateroll/dateroll.yaml'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        result = list(self.db.tracker.find({'function': 'get/response'}))
+        self.assertEqual(1, len(result))
+        response = result[0]['stubo_response']
+        import datetime
+
+        d = datetime.date.today()
+        self.assertTrue('<putstub_arg>this stub was recorded at {0}'.format(
+            d) in response)
+        self.assertTrue('<getresponse_arg>this stub was played at {0}'.format(
+            d + +datetime.timedelta(1)) in response)
+
+
+class TestGetScenarios(Base):
+    def test_empty(self):
+        self.http_client.fetch(self.get_url('/stubo/api/get/scenarios'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'),
+                         {"scenarios": [], "host": "localhost"})
+
+    def test_host(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/scenarios'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'),
+                         {"scenarios": ["localhost:first"], "host": "localhost"})
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/scenarios?host=localhost'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'),
+                         {"scenarios": ["localhost:first"], "host": "localhost"})
+
+    def test_all_hosts(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/state/text/converse.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/scenarios'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'),
+                         {"scenarios": ["localhost:first", "localhost:converse"],
+                          "host": "localhost"})
+
+    def test_other_host(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/scenarios?host=bogus'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        payload = json.loads(response.body)
+        self.assertEqual(payload.get('data'),
+                         {"scenarios": [], "host": "bogus"})
+
+
+class TestGetResponse(Base):
+    def test_mode_in_playback(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first_setup.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/end/session?session=first_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=first_1'), self.stop,
+                               method="POST", body="timestamp: 09:23:45 get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 500)
+        payload = json.loads(response.body)
+        self.assertTrue(payload['error']['message'].startswith("cache status != playback"))
+
+    def test_get_response_url_session_arg_is_used(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first_setup.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/end/session?session=first_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario=first&session=playme&mode=playback'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=playme'), self.stop,
+                               method="POST", body="timestamp: 09:23:45 get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        tracker = self.db.tracker.find_one({'function': 'get/response'})
+        self.assertEqual(tracker['request_params'].get('session'), 'playme')
+
+class TestMultipleMatchers(Base):
+
+    def test_multiple_matchers_multiple_lines_template(self):
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/multiple_matchers/templated/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        import datetime
+        yy = str(datetime.datetime.now().year)[2:]
+        mm = datetime.datetime.now().strftime('%b')
+        dd = '%02d' % datetime.datetime.now().day
+
+        rollMe = "<rollMe>%s%s%s</rollMe>"%(dd,mm,yy)
+        something = "<something>some</something>"
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_2'),
+            callback=self.stop, method="POST",
+            body=something+rollMe)
+        response = self.wait()
+        body = response.body.strip()
+        self.assertIn("The flight number is", body)
+
+    def test_multiple_matchers_multiple_lines(self):
+
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile='
+                                            '/static/cmds/tests/templates/multiple_matchers/plain/first.commands'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        import datetime
+        yy = str(datetime.datetime.now().year)[2:]
+        mm = datetime.datetime.now().strftime('%b')
+        dd = '%02d' % datetime.datetime.now().day
+
+        rollMe = "<rollMe>%s%s%s</rollMe>"%(dd,mm,yy)
+        something = "<something>some</something>"
+
+        self.http_client.fetch(self.get_url(
+            '/stubo/api/get/response?session=first_2'),
+            callback=self.stop, method="POST",
+            body=something+rollMe)
+        response = self.wait()
+        body = response.body.strip()
+        self.assertIn("The flight number is", body)
+
+class TestHTTPCompression(Base):
+    def get_httpserver_options(self):
+        return dict(decompress_request=True)
+
+    def test_gzip_request(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first_setup.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        import StringIO
+        import gzip
+
+        stringio = StringIO.StringIO()
+        gzip_file = gzip.GzipFile(fileobj=stringio, mode='w')
+        gzip_file.write("get my stub")
+        gzip_file.close()
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=first_1'),
+                               self.stop,
+                               use_gzip=False,
+                               headers={"Content-Encoding": "gzip",
+                                        "Accept-Encoding": "gzip"},
+                               method="POST",
+                               body=stringio.getvalue())
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.body[:-1], b"Hello 2 World")
+
+    def test_gzip_response_is_disabled(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first_setup.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=first_1'), self.stop,
+                               use_gzip=False,
+                               headers={"Accept-Encoding": "gzip"},
+                               method="POST", body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertNotEqual(response.headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(response.body[:-1], b"Hello 2 World")
+
+
+class TestHTTPResponseCompressionEnabled(Base):
+    def get_app(self):
+        self.cfg['compress_response'] = True
+        return super(TestHTTPResponseCompressionEnabled, self).get_app()
+
+    def test_gzip_response(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first_setup.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=first_1'), self.stop,
+                               use_gzip=False,
+                               headers={"Accept-Encoding": "gzip"},
+                               method="POST", body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers.get("Content-Encoding"), "gzip")
+        # Our test data gets bigger when gzipped.  Oops.  :)
+        self.assertEqual(len(response.body), 34)
+        import gzip
+
+        f = gzip.GzipFile(mode="r", fileobj=response.buffer)
+        self.assertEqual(f.read()[:-1], b"Hello 2 World")
+
+    def test_gzip_response_not_desired(self):
+        self.http_client.fetch(self.get_url('/stubo/api/exec/cmds?cmdfile=/static/cmds/demo/first_setup.commands'),
+                               self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=first_1'), self.stop,
+                               use_gzip=False,
+                               headers={"Accept-Encoding": "identity"},
+                               method="POST", body="get my stub")
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertNotEqual(response.headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(response.body[:-1], b"Hello 2 World")
+
+
+class TestRest(Base):
+    def test_error_response(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'rest&session=rest_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stub = {
             "request": {
                 "method": "POST",
                 "bodyPatterns":
                     {"contains": ["<status>OK</status>"]}
             },
             "response": {
-                "status": 200,
+                "status": 400,
                 "body": "<response>YES</response>"
             }
-        }, 'localhost:foo'))
-
-        self.scenario.insert_stub(doc, stateful=True)
-        response = begin_session(self.make_request(), 'foo', '1', 'playback',
-                                 system_date=None, warm_cache=False)
-        self.assertEqual(response['data'], {
-            'status': 'playback',
-            'message': 'Playback mode initiated....',
-            'session': '1',
-            'scenario': 'localhost:foo'
-        })
-
-    def test_play_no_scenario(self):
-        from stubo.service.api import begin_session
-        from stubo.exceptions import HTTPClientError
-
-        with self.assertRaises(HTTPClientError):
-            begin_session(self.make_request(), 'foo', '1', 'playback',
-                          system_date=None, warm_cache=False)
-
-    def test_play_in_record_mode(self):
-        from stubo.service.api import begin_session
-        from stubo.exceptions import HTTPClientError
-
-        self._make_scenario('localhost:foo')
-        session_payload = {
-            'status': 'record',
-            'scenario': 'localhost:foo',
-            'session': '1'
         }
-        self.cache.set_session('foo', '1', session_payload)
-        with self.assertRaises(HTTPClientError):
-            begin_session(self.make_request(), 'foo', '1', 'playback',
-                          system_date=None, warm_cache=False)
+        import json
 
+        self.http_client.fetch(self.get_url('/stubo/api/put/stub?session=rest_1'), callback=self.stop,
+                               method="POST", body=json.dumps(stub), headers={'Content-Type': 'application/json'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
 
-class TestDeleteStubs(unittest.TestCase):
-    def setUp(self):
-        self.cache = DummyCache('localhost')
-        self.patch = mock.patch('stubo.service.api.Cache', self.cache)
-        self.patch.start()
-        self.scenario = DummyScenario()
-        self.db_patch = mock.patch('stubo.service.api.Scenario', self.scenario)
-        self.db_patch.start()
-        self.db_patch2 = mock.patch('stubo.cache.Scenario', self.scenario)
-        self.db_patch2.start()
+        stubs = list(self.db.scenario_stub.find())
+        self.assertEqual(len(stubs), 1)
 
-    def tearDown(self):
-        self.patch.stop()
-        self.db_patch.stop()
-        self.db_patch2.stop()
+        self.http_client.fetch(
+            self.get_url('/stubo/api/end/session?session=rest_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
 
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
+        self.http_client.fetch(
+            self.get_url('/stubo/api/begin/session?scenario=rest&session=rest_1&mode=playback'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
 
-    def test_scenario_arg(self):
-        from stubo.service.api import delete_stubs
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=rest_1'),
+                               self.stop, method='POST', body="<status>OK</status>")
+        response = self.wait()
+        self.assertEqual(response.code, 400)
 
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        response = delete_stubs(handler, scenario_name='conversation')
-        self.assertEqual(response.get('data'), {'scenarios': ['localhost:conversation'], 'message': 'stubs deleted.'})
+    def test_empty_response(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'rest&session=rest_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
 
-    def test_active_sessions_playback(self):
-        from stubo.service.api import delete_stubs
-        from stubo.exceptions import HTTPClientError
-
-        scenario_name = 'conversation'
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        session_payload = {
-            'status': 'playback',
-            'scenario': 'localhost:conversation',
-            'session': 'joe'
-        }
-        self.cache.set_session(scenario_name, 'joe', session_payload)
-        with self.assertRaises(HTTPClientError):
-            delete_stubs(handler, scenario_name=scenario_name)
-
-    def test_active_sessions_record(self):
-        from stubo.service.api import delete_stubs
-        from stubo.exceptions import HTTPClientError
-
-        scenario_name = 'conversation'
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        session_payload = {
-            'status': 'record',
-            'scenario': 'localhost:conversation',
-            'session': 'joe'
-        }
-        self.cache.set_session(scenario_name, 'joe', session_payload)
-        with self.assertRaises(HTTPClientError):
-            delete_stubs(handler, scenario_name=scenario_name)
-
-    def test_with_force(self):
-        from stubo.service.api import delete_stubs
-
-        scenario_name = 'conversation'
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        session_payload = {
-            'status': 'record',
-            'scenario': 'localhost:conversation',
-            'session': 'joe'
-        }
-        self.cache.set_session(scenario_name, 'joe', session_payload)
-        response = delete_stubs(handler, scenario_name=scenario_name,
-                                force=True)
-        self.assertEqual(response.get('data'), {'scenarios': ['localhost:conversation'], 'message': 'stubs deleted.'
-                                                })
-        self.assertEqual(self.cache._hash.values('localhost:conversation'), {})
-
-    def test_delete_one_scenario(self):
-        from stubo.service.api import delete_stubs
-
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        self._make_scenario('localhost:conversation2')
-        response = delete_stubs(handler, scenario_name='conversation',
-                                host='localhost')
-        self.assertEqual(response.get('data'),
-                         {'scenarios': ['localhost:conversation'], 'message': 'stubs deleted.'})
-        result = list(self.scenario.get_all())
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]['name'], 'localhost:conversation2')
-
-    def test_host_arg(self):
-        from stubo.service.api import delete_stubs
-
-        self._make_scenario('localhost:conversation')
-        self._make_scenario('localhost:conversation2')
-        response = delete_stubs(DummyRequestHandler(), host='localhost')
-        self.assertEqual(response.get('data').get('message'), 'stubs deleted.')
-        self.assertEqual(sorted(response['data'].get('scenarios')),
-                         sorted(['localhost:conversation', 'localhost:conversation2']))
-        self.assertEqual(list(self.scenario.get_all()), [])
-
-    def test_host_arg2(self):
-        from stubo.service.api import delete_stubs
-
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        self._make_scenario('someotherhost:conversation2')
-        response = delete_stubs(handler, host='localhost')
-        self.assertEqual(response.get('data').get('message'), 'stubs deleted.')
-        self.assertEqual(response['data'].get('scenarios'),
-                         ['localhost:conversation'])
-        result = list(self.scenario.get_all())
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]['name'], 'someotherhost:conversation2')
-
-    def test_host_arg3(self):
-        from stubo.service.api import delete_stubs
-
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        self._make_scenario('someotherhost:conversation2')
-        response = delete_stubs(handler, host='someotherhost')
-        self.assertEqual(response.get('data').get('message'), 'stubs deleted.')
-        self.assertEqual(response['data'].get('scenarios'),
-                         ['someotherhost:conversation2'])
-        result = list(self.scenario.get_all())
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]['name'], 'localhost:conversation')
-
-    def test_host_all_arg(self):
-        from stubo.service.api import delete_stubs
-
-        handler = DummyRequestHandler()
-        self._make_scenario('localhost:conversation')
-        self._make_scenario('someotherhost:conversation2')
-        response = delete_stubs(handler, host='all')
-        self.assertEqual(response.get('data').get('message'), 'stubs deleted.')
-        self.assertEqual(sorted(response['data'].get('scenarios')),
-                         sorted(['localhost:conversation',
-                                 'someotherhost:conversation2']))
-        self.assertEqual(list(self.scenario.get_all()), [])
-
-
-class TestPutStub(unittest.TestCase):
-    def setUp(self):
-        self.cache = DummyCache('localhost')
-        self.patch = mock.patch('stubo.service.api.Cache', self.cache)
-        self.patch.start()
-        self.scenario = DummyScenario()
-        self.db_patch = mock.patch('stubo.service.api.Scenario', self.scenario)
-        self.db_patch.start()
-        self.db_patch2 = mock.patch('stubo.cache.Scenario', self.scenario)
-        self.db_patch2.start()
-        self.tracker = DummyTracker()
-        self.tracker_patch = mock.patch('stubo.service.api.Tracker', self.tracker)
-        self.tracker_patch.start()
-
-    def tearDown(self):
-        self.patch.stop()
-        self.db_patch.stop()
-        self.db_patch2.stop()
-        self.tracker_patch.stop()
-
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
-
-    def make_request(self, **kwargs):
-        return DummyRequestHandler(**kwargs)
-
-    def test_put(self):
-        from stubo.service.api import put_stub, begin_session
-        from datetime import date
-
-        body = {
+        stub = {
             "request": {
-                "method": "POST",
-                "bodyPatterns":
-                    {"contains": ["get my stub"]}
+                "method": "DELETE",
+                "urlPath": "/some/content"
+            },
+            "response": {
+                "status": 204,
+                "body": "",
+            }
+        }
+        import json
+
+        self.http_client.fetch(self.get_url('/stubo/api/put/stub?session=rest_1'), callback=self.stop,
+                               method="POST", body=json.dumps(stub), headers={'Content-Type': 'application/json'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubs = list(self.db.scenario_stub.find())
+        self.assertEqual(len(stubs), 1)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/end/session?session=rest_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/begin/session?scenario=rest&session=rest_1&mode=playback'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=rest_1'),
+                               self.stop, method='POST', body="", headers={'Stubo-Request-Path': '/some/content',
+                                                                           'Stubo-Request-Method': 'DELETE'})
+        response = self.wait()
+        self.assertEqual(response.code, 204)
+
+    def test_empty_response2(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'rest&session=rest_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stub = {
+            "request": {
+                "method": "DELETE",
+                "urlPath": "/some/content"
+            },
+            "response": {
+                "status": 204,
+            }
+        }
+        import json
+
+        self.http_client.fetch(self.get_url('/stubo/api/put/stub?session=rest_1'), callback=self.stop,
+                               method="POST", body=json.dumps(stub), headers={'Content-Type': 'application/json'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubs = list(self.db.scenario_stub.find())
+        self.assertEqual(len(stubs), 1)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/end/session?session=rest_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/begin/session?scenario=rest&session=rest_1&mode=playback'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=rest_1'),
+                               self.stop, method='POST', body="", headers={'Stubo-Request-Path': '/some/content',
+                                                                           'Stubo-Request-Method': 'DELETE'})
+        response = self.wait()
+        self.assertEqual(response.code, 204)
+
+    def test_response_headers(self):
+        self.http_client.fetch(self.get_url('/stubo/api/begin/session?scenario='
+                                            'rest&session=rest_1&mode=record'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stub = {
+            "request": {
+                "method": "GET",
+                "urlPath": "/some/content"
             },
             "response": {
                 "status": 200,
-                "body": "a response"
+                "body": {"x": "y"},
+                "headers": {
+                    "Content-Type": "application/json",
+                    "My-App": "XYZ"
+                }
             }
         }
-        handler = DummyRequestHandler()
-        handler.request.headers = {
-            'Content-Type': 'application/json; charset=UTF-8'
-        }
         import json
 
-        handler.request.body = json.dumps(body)
-        begin_session(self.make_request(), 'conversation', 'joe', 'record', system_date=None, warm_cache=False)
-
-        response = put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                            priority=1)
-        self.assertTrue('error' not in response)
-        stubs = self.scenario.get_stubs('localhost:conversation')
-        stubs = list(stubs)
-        self.assertTrue(len(stubs) == 1)
-        from stubo.model.stub import Stub
-
-        stub = Stub(stubs[0]['stub'], 'localhost:conversation')
-        self.assertEqual(stub.contains_matchers(), ['get my stub'])
-        self.assertEqual(stub.response_body(), ['a response'])
-        self.assertEqual(stub.recorded(), str(date.today()))
-        self.assertEqual(stub.priority(), 1)
-
-    def test_put_with_module(self):
-        from stubo.service.api import put_stub, begin_session
-        from datetime import date
-
-        body = {
-            "request": {
-                "method": "POST",
-                "bodyPatterns":
-                    {"contains": ["get my stub"]}
-            },
-            "response": {
-                "status": 200,
-                "body": "a response"
-            }
-        }
-        module = {
-            u'name': u'mangler',
-            u'recorded_system_date': u'2014-08-06',
-            u'system_date': u'2014-08-06'
-        }
-        body['module'] = module
-        handler = DummyRequestHandler()
-        handler.request.headers = {
-            'Content-Type': 'application/json; charset=UTF-8'
-        }
-        import json
-
-        handler.request.body = json.dumps(body)
-        begin_session(self.make_request(), 'conversation', 'joe', 'record', system_date=None, warm_cache=False)
-
-        response = put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                            priority=2)
-        self.assertTrue('error' not in response)
-        stubs = list(self.scenario.get_stubs('localhost:conversation'))
-        self.assertTrue(len(stubs) == 1)
-        from stubo.model.stub import Stub
-
-        stub = Stub(stubs[0]['stub'], 'localhost:conversation')
-        self.assertEqual(stub.module(), module)
-        self.assertEqual(stub.contains_matchers(), ['get my stub'])
-        self.assertEqual(stub.response_body(), ['a response'])
-        self.assertEqual(stub.recorded(), str(date.today()))
-        self.assertEqual(stub.priority(), 2)
-
-    def test_put_with_delay(self):
-        from stubo.service.api import put_stub, begin_session
-        from datetime import date
-
-        body = {
-            "request": {
-                "method": "POST",
-                "bodyPatterns":
-                    {"contains": ["get my stub"]}
-            },
-            "response": {
-                "status": 200,
-                "body": "a response",
-                "delayPolicy": "slow"
-            }
-        }
-        handler = DummyRequestHandler()
-        handler.request.headers = {'Content-Type': 'application/json'}
-        import json
-
-        handler.request.body = json.dumps(body)
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        response = put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                            priority=1)
-        self.assertTrue('error' not in response)
-        stubs = list(self.scenario.get_stubs('localhost:conversation'))
-        self.assertTrue(len(stubs) == 1)
-        from stubo.model.stub import Stub
-
-        stub = Stub(stubs[0]['stub'], 'localhost:conversation')
-        self.assertEqual(stub.contains_matchers(), ['get my stub'])
-        self.assertEqual(stub.response_body(), ['a response'])
-        self.assertEqual(stub.recorded(), str(date.today()))
-        self.assertEqual(stub.delay_policy(), 'slow')
-        self.assertEqual(stub.priority(), 1)
-
-    def test_put_with_delay_arg_override(self):
-        from stubo.service.api import put_stub, begin_session
-        from datetime import date
-
-        body = {
-            "request": {
-                "method": "POST",
-                "bodyPatterns":
-                    {"contains": ["get my stub"]}
-            },
-            "response": {
-                "status": 200,
-                "body": "a response",
-                "delayPolicy": "slow"
-            }
-        }
-        handler = DummyRequestHandler()
-        handler.request.headers = {'Content-Type': 'application/json'}
-        import json
-
-        handler.request.body = json.dumps(body)
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        response = put_stub(handler, 'joe', delay_policy='fast',
-                            stateful=True, priority=1)
-        self.assertTrue('error' not in response)
-        stubs = list(self.scenario.get_stubs('localhost:conversation'))
-        self.assertTrue(len(stubs) == 1)
-        from stubo.model.stub import Stub
-
-        stub = Stub(stubs[0]['stub'], 'localhost:conversation')
-        self.assertEqual(stub.contains_matchers(), ['get my stub'])
-        self.assertEqual(stub.response_body(), ['a response'])
-        self.assertEqual(stub.recorded(), str(date.today()))
-        self.assertEqual(stub.delay_policy(), 'fast')
-        self.assertEqual(stub.priority(), 1)
-
-    def test_put_in_dormant(self):
-        from stubo.service.api import put_stub, begin_session, end_session
-        from stubo.exceptions import HTTPClientError
-
-        body = {
-            "request": {
-                "method": "POST",
-                "bodyPatterns":
-                    {"contains": ["get my stub"]}
-            },
-            "response": {
-                "status": 200,
-                "body": "a response",
-                "delayPolicy": "slow"
-            }
-        }
-        handler = DummyRequestHandler()
-        handler.request.headers = {'Content-Type': 'application/json'}
-        import json
-
-        handler.request.body = json.dumps(body)
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        self.tracker.insert(dict(scenario='localhost:conversation',
-                                 request_text=handler.request.body,
-                                 request_params=dict(scenario='conversation'),
-                                 function='put/stub',
-                                 stubo_response='<test>OK</test>'))
-        end_session(self.make_request(), 'joe')
-
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                     priority=1)
-
-    def test_put_in_playback(self):
-        from stubo.service.api import put_stub, begin_session
-        from stubo.exceptions import HTTPClientError
-
-        body = {
-            "request": {
-                "method": "POST",
-                "bodyPatterns":
-                    {"contains": ["get my stub"]}
-            },
-            "response": {
-                "status": 200,
-                "body": "a response",
-                "delayPolicy": "slow"
-            }
-        }
-        handler = DummyRequestHandler()
-        handler.request.headers = {'Content-Type': 'application/json'}
-        import json
-
-        handler.request.body = json.dumps(body)
-        self._make_scenario('localhost:conversation')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:conversation')
-        doc = dict(scenario='localhost:conversation', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-
-        begin_session(self.make_request(), 'conversation', 'joe', 'playback',
-                      system_date=None, warm_cache=False)
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                     priority=1)
-
-    def test_put_no_session(self):
-        from stubo.service.api import put_stub
-        from stubo.exceptions import HTTPClientError
-
-        handler = DummyRequestHandler()
-        from stubo.model.stub import create
-
-        handler.request.headers = {'Content-Type': 'application/json'}
-        import json
-
-        handler.request.body = json.dumps(create(request_body='x',
-                                                 response_body='y'))
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'bogus', delay_policy=None, stateful=True,
-                     priority=1)
-
-    def test_put_empty_payload(self):
-        from stubo.service.api import put_stub, begin_session
-        from stubo.exceptions import HTTPClientError
-
-        body = {}
-        handler = DummyRequestHandler()
-        handler.request.headers = {'Content-Type': 'application/json'}
-        import json
-
-        handler.request.body = json.dumps(body)
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                     priority=1)
-
-
-class TestPutStubLegacy(unittest.TestCase):
-    def setUp(self):
-        self.cache = DummyCache('localhost')
-        self.patch = mock.patch('stubo.service.api.Cache', self.cache)
-        self.patch.start()
-        self.scenario = DummyScenario()
-        self.db_patch = mock.patch('stubo.service.api.Scenario', self.scenario)
-        self.db_patch.start()
-        self.db_patch2 = mock.patch('stubo.cache.Scenario', self.scenario)
-        self.db_patch2.start()
-
-    def tearDown(self):
-        self.patch.stop()
-        self.db_patch.stop()
-        self.db_patch2.stop()
-
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
-
-    def make_request(self, **kwargs):
-        return DummyRequestHandler(**kwargs)
-
-    def test_put(self):
-        from stubo.service.api import put_stub, begin_session
-        from datetime import date
-
-        body = '||textMatcher||get my stub||response||a response'
-        handler = DummyRequestHandler()
-        handler.request.body = body
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        response = put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                            priority=1)
-        self.assertTrue('error' not in response)
-        stubs = list(self.scenario.get_stubs('localhost:conversation'))
-        self.assertTrue(len(stubs) == 1)
-        from stubo.model.stub import Stub
-
-        stub = Stub(stubs[0]['stub'], 'localhost:conversation')
-        self.assertEqual(stub.contains_matchers(), ['get my stub'])
-        self.assertEqual(stub.response_body(), ['a response'])
-        self.assertEqual(stub.recorded(), str(date.today()))
-        self.assertEqual(stub.priority(), 1)
-
-    def test_put_with_delay(self):
-        from stubo.service.api import put_stub, begin_session
-        from datetime import date
-
-        handler = DummyRequestHandler()
-        handler.request.body = '||textMatcher||get my stub||response||a response'
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        put_stub(handler, 'joe', delay_policy='slow', stateful=True, priority=1)
-        stubs = list(self.scenario.get_stubs('localhost:conversation'))
-        self.assertTrue(len(stubs) == 1)
-        from stubo.model.stub import Stub
-
-        stub = Stub(stubs[0]['stub'], 'localhost:conversation')
-        self.assertEqual(stub.contains_matchers(), ['get my stub'])
-        self.assertEqual(stub.response_body(), ['a response'])
-        self.assertEqual(stub.recorded(), str(date.today()))
-        self.assertEqual(stub.delay_policy(), 'slow')
-        self.assertEqual(stub.priority(), 1)
-
-    def test_put_no_session(self):
-        from stubo.service.api import put_stub
-        from stubo.exceptions import HTTPClientError
-
-        handler = DummyRequestHandler()
-        handler.request.body = '||textMatcher||get my stub||response||a response'
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'bogus', delay_policy=None, stateful=True,
-                     priority=1)
-
-    def test_put_no_text_in_body(self):
-        from stubo.service.api import put_stub, begin_session
-        from stubo.exceptions import HTTPClientError
-
-        body = ''
-        handler = DummyRequestHandler()
-        handler.request.body = body
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                     priority=1)
-
-    def test_put_bad_text_in_body(self):
-        from stubo.service.api import put_stub, begin_session
-        from stubo.exceptions import HTTPClientError
-
-        body = 'textMatcher||get my stub||response||a response'
-        handler = DummyRequestHandler()
-        handler.request.body = body
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                     priority=1)
-
-    def test_put_bad_text_in_body2(self):
-        from stubo.service.api import put_stub, begin_session
-        from stubo.exceptions import HTTPClientError
-
-        body = '||textMatcher||get my stub||a response'
-        handler = DummyRequestHandler()
-        handler.request.body = body
-        begin_session(self.make_request(), 'conversation', 'joe', 'record',
-                      system_date=None, warm_cache=False)
-        with self.assertRaises(HTTPClientError):
-            put_stub(handler, 'joe', delay_policy=None, stateful=True,
-                     priority=1)
-
-
-class TestStubCount(unittest.TestCase):
-    def setUp(self):
-        self.scenario = DummyScenario()
-        self.db_patch = mock.patch('stubo.service.api.Scenario', self.scenario)
-        self.db_patch.start()
-
-    def tearDown(self):
-        self.db_patch.stop()
-
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
-
-    def test_2stubs(self):
-        from stubo.service.api import stub_count
-
-        self._make_scenario('localhost:2stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:2stub1matcher')
-        doc = dict(scenario='localhost:2stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this 2</test>', '<test>OK</test>'),
-                    'localhost:2stub1matcher')
-        doc = dict(scenario='localhost:2stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-
-        response = stub_count('localhost', '2stub1matcher')
-        self.assertEqual(response['data']['count'], 2)
-
-    def test_no_scenario(self):
-        from stubo.service.api import stub_count
-
-        response = stub_count('localhost', 'bogus')
-        self.assertEqual(response['data']['count'], 0)
-
-    """ FIXME
-    def test_regex_scenario(self): 
-        from stubo.service.api import stub_count
-        response = stub_count('localhost')
-        self.assertEqual(response['data']['count'], 0)"""
-
-
-class TestStubList(unittest.TestCase):
-    def setUp(self):
-        self.scenario = DummyScenario()
-        self.db_patch = mock.patch('stubo.service.api.Scenario', self.scenario)
-        self.db_patch.start()
-
-    def tearDown(self):
-        self.db_patch.stop()
-
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
-
-    def test_1stub_1matcher(self):
-        from stubo.service.api import list_stubs
-
-        self._make_scenario('localhost:1stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:1stub1matcher')
-        doc = dict(scenario='localhost:1stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-        response = list_stubs(DummyRequestHandler(), '1stub1matcher')
-        self.assertTrue('stubs' in response.get('data'))
-        stubs = response['data']['stubs']
-        self.assertTrue(len(stubs) == 1)
-        from stubo.model.stub import Stub
-
-        stub = Stub(stubs[0], 'localhost:1stub1matcher')
-        self.assertEqual(stub.contains_matchers(), ['<test>match this</test>'])
-        self.assertEqual(stub.response_body(), ['<test>OK</test>'])
-
-    def test_2stub_1matcher(self):
-        from stubo.service.api import list_stubs
-
-        self._make_scenario('localhost:2stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:2stub1matcher')
-        doc = dict(scenario='localhost:2stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-
-        from stubo.model.stub import create, Stub
-
-        stub2 = Stub(create('<test>match this 2</test>', '<test>OK</test>'),
-                     'localhost:2stub1matcher')
-        doc2 = dict(scenario='localhost:2stub1matcher', stub=stub2)
-        self.scenario.insert_stub(doc2, stateful=True)
-
-        response = list_stubs(DummyRequestHandler(), '2stub1matcher')
-        self.assertTrue('stubs' in response.get('data'))
-        stubs = response['data']['stubs']
-        self.assertTrue(len(stubs) == 2)
-
-        # ming insert not in doc order all the time?
-        # from stubo.model.stub import Stub
-        # stub = Stub(stubs[0], 'localhost:2stub1matcher')
-        # self.assertEqual(stub.contains_matchers(), ['<test>match this</test>'])
-        # stub2 = Stub(stubs[1], 'localhost:2stub1matcher')
-        # self.assertEqual(stub2.contains_matchers(), ['<test>match this 2</test>'])
-
-
-class TestGetStubs(unittest.TestCase):
-    def setUp(self):
-        self.scenario = DummyScenario()
-        self.db_patch = mock.patch('stubo.service.api.Scenario', self.scenario)
-        self.db_patch.start()
-
-    def tearDown(self):
-        self.db_patch.stop()
-
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
-
-    def test_get_stubs(self):
-        from stubo.service.api import get_stubs
-
-        self._make_scenario('localhost:1stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:1stub1matcher')
-        doc = dict(scenario='localhost:1stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-        response = get_stubs('localhost', '1stub1matcher')
-        response = list(response)
-        self.assertEqual(len(response), 1)
-        response = response[0]
-        response.pop('_id')
-        test_dict = {u'matchers_hash': u'ed9351449fd0d98abd79c2aa2436f392',
-                     u'scenario': u'localhost:1stub1matcher',
-                     u'space_used': 146,
-                     u'stub': {u'request': {u'bodyPatterns': {u'contains': [u'<test>match this</test>']},
-                                            u'method': u'POST'},
-                               u'response': {u'body': u'<test>OK</test>', u'status': 200}}}
-        self.assertEqual(response, test_dict)
-
-    def test_get_stubs_host_arg(self):
-        from stubo.service.api import get_stubs
-
-        self._make_scenario('localhost:1stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:1stub1matcher')
-        doc = dict(scenario='localhost:1stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-        response = get_stubs('localhost')
-        response = list(response)
-        self.assertEqual(len(response), 1)
-        response = response[0]
-        response.pop('_id')
-        test_dict = {u'matchers_hash': u'ed9351449fd0d98abd79c2aa2436f392',
-                     u'scenario': u'localhost:1stub1matcher',
-                     u'space_used': 146,
-                     u'stub': {u'request': {u'bodyPatterns': {u'contains': [u'<test>match this</test>']},
-                                            u'method': u'POST'},
-                               u'response': {u'body': u'<test>OK</test>', u'status': 200}}}
-        self.assertEqual(response, test_dict)
-
-
-class TestStubExport(unittest.TestCase):
-    def setUp(self):
-        self.cache = DummyCache('localhost')
-        self.patch = mock.patch('stubo.service.api.Cache', self.cache)
-        self.patch.start()
-        self.scenario = DummyScenario()
-        self.db_patch0 = mock.patch('stubo.model.export_commands.Scenario', self.scenario)
-        self.db_patch0.start()
-        self.db_patch = mock.patch('stubo.model.exporter.Scenario', self.scenario)
-        self.db_patch.start()
-        self.db_patch2 = mock.patch('stubo.cache.Scenario', self.scenario)
-        self.db_patch2.start()
-        self.tracker = DummyTracker()
-        self.tracker_patch0 = mock.patch('stubo.model.export_commands.Tracker', self.tracker)
-        self.tracker_patch0.start()
-        self.tracker_patch = mock.patch('stubo.model.exporter.Tracker', self.tracker)
-        self.tracker_patch.start()
-
-    def tearDown(self):
-        self.patch.stop()
-        self.db_patch.stop()
-        self.db_patch0.stop()
-        self.db_patch2.stop()
-        self.tracker_patch0.stop()
-        self.tracker_patch.stop()
-
-    def _make_scenario(self, name, **kwargs):
-        doc = dict(name=name, **kwargs)
-        self.scenario.insert(**doc)
-
-    def _delete_tmp_export_dir(self, scenario_dir):
-        import shutil
-
-        shutil.rmtree(scenario_dir)
-
-    def test_runnable_requires_playback_session(self):
-        from stubo.service.api import export_stubs
-        from stubo.exceptions import HTTPClientError
-
-        request_handler = DummyRequestHandler(session_id=['1'], runnable=['true'])
-        self._make_scenario('localhost:1stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:1stub1matcher')
-        doc = dict(scenario='localhost:1stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-        self.scenario.insert_pre_stub('localhost:1stub1matcher', stub)
-        with self.assertRaises(HTTPClientError):
-            export_stubs(request_handler, '1stub1matcher')
-
-    def test_runnable_requires_playback(self):
-        from stubo.service.api import export_stubs
-        from stubo.exceptions import HTTPClientError
-
-        request_handler = DummyRequestHandler(session_id=['1'],
-                                              runnable=['true'],
-                                              playback_session=['myrunnable'])
-        self._make_scenario('localhost:1stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:1stub1matcher')
-        doc = dict(scenario='localhost:1stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-        self.scenario.insert_pre_stub('localhost:1stub1matcher', stub)
-        with self.assertRaises(HTTPClientError):
-            export_stubs(request_handler, '1stub1matcher')
-
-    def test_runnable(self):
-        from stubo.service.api import export_stubs
-
-        request_handler = DummyRequestHandler(session_id=['1'],
-                                              runnable=['true'],
-                                              playback_session=['myrunnable'])
-        self._make_scenario('localhost:1stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:1stub1matcher')
-        doc = dict(scenario='localhost:1stub1matcher', stub=stub)
-        self.scenario.insert_stub(doc, stateful=True)
-        import json
-
-        payload = json.dumps(stub.payload)
-        self.tracker.insert(dict(scenario='localhost:1stub1matcher',
-                                 request_text=payload,
-                                 request_params=dict(scenario='1stub1matcher'),
-                                 request_headers=dict(),
-                                 function='put/stub',
-                                 stubo_response='<test>OK</test>'))
-        response = export_stubs(request_handler, '1stub1matcher')
-        self.assertTrue('runnable' in response['data'])
-        runnable = response['data']['runnable']
-        self.assertEqual(runnable.get('playback_session'), 'myrunnable')
-        self.assertEqual(runnable.get('number_of_playback_requests'), 1)
-
-    def test_1stub_1matcher(self):
-        from stubo.service.api import export_stubs
-        import os.path
-
-        request_handler = DummyRequestHandler(session_id=['1'])
-        self._make_scenario('localhost:1stub1matcher')
-        from stubo.model.stub import create, Stub
-
-        stub = Stub(create('<test>match this</test>', '<test>OK</test>'),
-                    'localhost:1stub1matcher')
-        self.scenario.insert_pre_stub('localhost:1stub1matcher', stub)
-
-        response = export_stubs(request_handler, '1stub1matcher').get('data')
-        self.assertEqual(response['scenario'], '1stub1matcher')
-        self.assertTrue(len(response['yaml_links']), 5)
-        local_server = 'http://{0}:{1}'.format(request_handler.track.server,
-                                               request_handler.track.port)
-        self.assertEqual(response['yaml_links'], [
-            ('1stub1matcher_1_0.json',
-             local_server + '/static/exports/localhost_1stub1matcher/yaml_format/1stub1matcher_1_0.json'),
-            ('1stub1matcher.yaml',
-             local_server + '/static/exports/localhost_1stub1matcher/yaml_format/1stub1matcher.yaml'),
-            ('1stub1matcher.zip',
-             local_server + '/static/exports/localhost_1stub1matcher/yaml_format/1stub1matcher.zip'),
-            ('1stub1matcher.tar.gz',
-             local_server + '/static/exports/localhost_1stub1matcher/yaml_format/1stub1matcher.tar.gz'),
-            ('1stub1matcher.jar',
-             local_server + '/static/exports/localhost_1stub1matcher/yaml_format/1stub1matcher.jar')])
-
-        scenario_dir = response['export_dir_path']
-        files = [os.path.join(scenario_dir, x[0]) for x in response['yaml_links']]
-        for f in files:
-            self.assertTrue(os.path.exists(f))
-
-        expected = ['recording:\n', '  scenario: 1stub1matcher\n', '  session: 1stub1matcher_1\n', '  stubs:\n',
-                    '  - file: 1stub1matcher_1_0.json\n']
-
-        with open(os.path.join(scenario_dir, '1stub1matcher.yaml')) as f:
-            lines = f.readlines()
-            self.assertEqual([x.strip() for x in lines[1:]],
-                             [x.strip() for x in expected])
-
-        with open(os.path.join(scenario_dir, '1stub1matcher_1_0.json')) as f:
-            payload = f.read()
-            self.assertEqual(payload, """{
-   "args": {}, 
-   "request": {
-      "bodyPatterns": {
-         "contains": [
-            "<test>match this</test>"
-         ]
-      }, 
-      "method": "POST"
-   }, 
-   "response": {
-      "body": "<test>OK</test>", 
-      "status": 200
-   }
-}""")
-        self._delete_tmp_export_dir(scenario_dir)
-
-    def test_1stub_2matcher(self):
-        from stubo.service.api import export_stubs
-        import os.path
-
-        scenario_name = 'x'
-        handler = DummyRequestHandler(session_id=['1'])
-        self._make_scenario('localhost:x')
-        from stubo.model.stub import Stub
-
-        stub = Stub(make_stub(['<test>match this</test>',
-                               '<test>and this</test>'], '<test>OK</test>',
-                              delay_policy='slow'), scenario=scenario_name)
-        self.scenario.insert_pre_stub('localhost:x', stub)
-        response = export_stubs(handler, scenario_name).get('data')
-        self.assertEqual(response['scenario'], scenario_name)
-        self.assertTrue(len(response['yaml_links']), 6)
-        local_server = 'http://{0}:{1}'.format(handler.track.server,
-                                               handler.track.port)
-        self.assertEqual(response['yaml_links'], [
-            ('x_1_0.json', local_server + '/static/exports/localhost_x/yaml_format/x_1_0.json'),
-            ('x.yaml', local_server + '/static/exports/localhost_x/yaml_format/x.yaml'),
-            ('x.zip', local_server + '/static/exports/localhost_x/yaml_format/x.zip'),
-            ('x.tar.gz', local_server + '/static/exports/localhost_x/yaml_format/x.tar.gz'),
-            ('x.jar', local_server + '/static/exports/localhost_x/yaml_format/x.jar')])
-
-        scenario_dir = response['export_dir_path']
-        files = [os.path.join(scenario_dir, x[0]) for x in response['yaml_links']]
-        for f in files:
-            self.assertTrue(os.path.exists(f))
-
-        self._delete_tmp_export_dir(scenario_dir)
-
-    def test_2stub_2matcher(self):
-        from stubo.service.api import export_stubs
-        import os.path
-
-        scenario_name = 'x'
-        self._make_scenario('localhost:x')
-        from stubo.model.stub import Stub
-
-        stub = Stub(make_stub(['<test>match this</test>',
-                               '<test>and this</test>'], '<test>OK</test>',
-                              delay_policy='slow'), scenario=scenario_name)
-        self.scenario.insert_pre_stub('localhost:x', stub)
-
-        stub2 = Stub(make_stub(['<test>match this 2</test>',
-                                '<test>and this</test>'], '<test>OK</test>',
-                               delay_policy='slow'), scenario=scenario_name)
-        self.scenario.insert_pre_stub('localhost:x', stub2)
-
-        handler = DummyRequestHandler(session_id=['1'])
-        response = export_stubs(handler, scenario_name).get('data')
-        self.assertEqual(response['scenario'], scenario_name)
-        self.assertTrue(len(response['yaml_links']), 9)
-        local_server = 'http://{0}:{1}'.format(handler.track.server,
-                                               handler.track.port)
-        self.assertEqual(response['yaml_links'], [
-            ('x_1_0.json', local_server + '/static/exports/localhost_x/yaml_format/x_1_0.json'),
-            ('x_1_1.json', local_server + '/static/exports/localhost_x/yaml_format/x_1_1.json'),
-            ('x.yaml', local_server + '/static/exports/localhost_x/yaml_format/x.yaml'),
-            ('x.zip', local_server + '/static/exports/localhost_x/yaml_format/x.zip'),
-            ('x.tar.gz', local_server + '/static/exports/localhost_x/yaml_format/x.tar.gz'),
-            ('x.jar', local_server + '/static/exports/localhost_x/yaml_format/x.jar')])
-
-        scenario_dir = response['export_dir_path']
-        files = [os.path.join(scenario_dir, x[0]) for x in response['yaml_links']]
-        for f in files:
-            self.assertTrue(os.path.exists(f))
-
-        self._delete_tmp_export_dir(scenario_dir)
-
-    def test_0stub_0matcher(self):
-        from stubo.service.api import export_stubs
-        import os.path
-
-        request_handler = DummyRequestHandler(session_id=['1'])
-        self._make_scenario('localhost:0stub0matcher')
-
-        response = export_stubs(request_handler, '0stub0matcher').get('data')
-        self.assertEqual(response['scenario'], '0stub0matcher')
-        self.assertTrue(len(response['yaml_links']), 5)
-        self.assertTrue(len(response['command_links']), 4)
-        local_server = 'http://{0}:{1}'.format(request_handler.track.server,
-                                               request_handler.track.port)
-
-        self.assertEqual(response['yaml_links'], [
-            ('0stub0matcher_1_0.json',
-             local_server + '/static/exports/localhost_0stub0matcher/yaml_format/0stub0matcher_1_0.json'),
-            ('0stub0matcher.yaml',
-             local_server + '/static/exports/localhost_0stub0matcher/yaml_format/0stub0matcher.yaml'),
-            ('0stub0matcher.zip',
-             local_server + '/static/exports/localhost_0stub0matcher/yaml_format/0stub0matcher.zip'),
-            ('0stub0matcher.tar.gz',
-             local_server + '/static/exports/localhost_0stub0matcher/yaml_format/0stub0matcher.tar.gz'),
-            ('0stub0matcher.jar',
-             local_server + '/static/exports/localhost_0stub0matcher/yaml_format/0stub0matcher.jar')
-        ])
-        scenario_dir = response['export_dir_path']
-        files = [os.path.join(scenario_dir, x[0]) for x in response['yaml_links']]
-        for f in files:
-            self.assertTrue(os.path.exists(f))
-
-        expected = ['recording:\n', '  scenario: 0stub0matcher\n', '  session: 0stub0matcher_1\n', '  stubs: []\n']
-
-        with open(os.path.join(scenario_dir, '0stub0matcher.yaml')) as f:
-            lines = f.readlines()
-            self.assertEqual([x.strip() for x in lines[1:]],
-                             [x.strip() for x in expected])
-
-        self._delete_tmp_export_dir(scenario_dir)
-
-
-class TestDelayPolicy(unittest.TestCase):
-    def setUp(self):
-        self.cache = DummyCache('localhost')
-        self.patch = mock.patch('stubo.service.api.Cache', self.cache)
-        self.patch.start()
-
-    def tearDown(self):
-        self.patch.stop()
-
-    def make_request(self, **kwargs):
-        return DummyRequestHandler(**kwargs)
-
-    def test_get_empty(self):
-        from stubo.service.api import get_delay_policy
-
-        response = get_delay_policy(self.make_request(), 'bogus', True)
-        self.assertEqual(response['data'], {})
-
-    def test_get(self):
-        from stubo.service.api import get_delay_policy
-
-        self.cache.set_delay_policy('slow', {u'delay_type': u'fixed', u'name': u'slow', u'milliseconds': u'200'})
-        response = get_delay_policy(self.make_request(), 'slow', True)
-        self.assertEqual(response['data'], {u'delay_type': u'fixed', u'name': u'slow', u'milliseconds': u'200'})
-
-    def test_delete(self):
-        from stubo.service.api import delete_delay_policy
-
-        self.cache.set_delay_policy('slow', {u'delay_type': u'fixed',
-                                             u'name': u'slow', u'milliseconds': u'200'})
-        response = delete_delay_policy(self.make_request(), ['slow'])
-        self.cache.get_delay_policy('slow')
-        self.assertEqual(self.cache.get_delay_policy(self.make_request(),
-                                                     'slow'), None)
-        self.assertEqual(response['data'].get('message'),
-                         "Deleted 1 delay policies from ['slow']")
-
-    def test_multi_delete(self):
-        from stubo.service.api import delete_delay_policy
-
-        self.cache.set_delay_policy('slow', {u'delay_type': u'fixed',
-                                             u'name': u'slow', u'milliseconds': u'200'})
-        self.cache.set_delay_policy('fast', {u'delay_type': u'fixed',
-                                             u'name': u'slow', u'milliseconds': u'1'})
-
-        response = delete_delay_policy(self.make_request(), ['slow', 'fast'])
-        self.assertEqual(response['data'].get('message'),
-                         "Deleted 2 delay policies from ['slow', 'fast']")
-
-    def test_put_fixed(self):
-        from stubo.service.api import update_delay_policy
-
-        args = {
-            'delay_type': 'fixed',
-            'name': 'x',
-            'milliseconds': '700'
-        }
-        response = update_delay_policy(self.make_request(), args)
-        self.assertEqual(response['data']['message'],
-                         "Put Delay Policy Finished")
-        self.assertEqual(self.cache.get_delay_policy('x'),
-                         {'delay_type': 'fixed', 'name': 'x', 'milliseconds': '700'})
-
-    def test_put_normalvariate(self):
-        from stubo.service.api import update_delay_policy
-
-        args = {
-            'delay_type': 'normalvariate',
-            'name': 'x',
-            'mean': '100',
-            'stddev': '50'
-        }
-        response = update_delay_policy(self.make_request(), args)
-        self.assertEqual(response['data']['message'],
-                         "Put Delay Policy Finished")
-        self.assertEqual(self.cache.get_delay_policy('x'),
-                         {'delay_type': 'normalvariate', 'name': 'x',
-                          'mean': '100', 'stddev': '50'})
-
-    def test_put_weighted(self):
-        from stubo.service.api import update_delay_policy
-
-        args = {
-            'delay_type': 'weighted',
-            'name': 'x',
-            'delays': 'fixed,30000,5:normalvariate,1000,1000,15:normalvariate,500,1000,70'
-        }
-        response = update_delay_policy(self.make_request(), args)
-        self.assertEqual(response['data']['message'],
-                         "Put Delay Policy Finished")
-        self.assertEqual(self.cache.get_delay_policy('x'),
-                         {'delay_type': 'weighted', 'name': 'x',
-                          'delays': 'fixed,30000,5:normalvariate,1000,1000,15:normalvariate,500,1000,70'})
-
-    def test_invalid_args(self):
-        from stubo.service.api import update_delay_policy
-        from stubo.exceptions import HTTPClientError
-
-        args = {
-            'delay_type': 'normalvariate',
-            'name': 'x',
-            'milliseconds': '700'
-        }
-        with self.assertRaises(HTTPClientError):
-            update_delay_policy(self.make_request(), args)
-
-    def test_invalid_args2(self):
-        from stubo.service.api import update_delay_policy
-        from stubo.exceptions import HTTPClientError
-
-        args = {
-            'delay_type': 'fixed',
-            'name': 'x',
-            'mean': '700'
-        }
-        with self.assertRaises(HTTPClientError):
-            update_delay_policy(self.make_request(), args)
-
-    def test_invalid_args3(self):
-        from stubo.service.api import update_delay_policy
-        from stubo.exceptions import HTTPClientError
-
-        args = {
-            'delay_type': 'weighted',
-            'name': 'x',
-        }
-        with self.assertRaises(HTTPClientError):
-            update_delay_policy(self.make_request(), args)
-
-    def test_invalid_args4(self):
-        from stubo.service.api import update_delay_policy
-        from stubo.exceptions import HTTPClientError
-
-        args = {
-            'delay_type': 'weighted',
-            'delays': 'baddata',
-        }
-        with self.assertRaises(HTTPClientError):
-            update_delay_policy(self.make_request(), args)
-
-
-class TestGetStatus(unittest.TestCase):
-    def test_call(self):
-        from stubo.service.api import get_status
-
-        response = get_status(DummyRequestHandler())
-        self.assertEqual(response.keys(), ['version', 'data'])
-
-
-from stubo.model.cmds import TextCommandsImporter
-
-
-class DummyStuboCommandFile(TextCommandsImporter):
-    def run_command(self, url, priority):
-        return 200
+        self.http_client.fetch(self.get_url('/stubo/api/put/stub?session=rest_1'), callback=self.stop,
+                               method="POST", body=json.dumps(stub), headers={'Content-Type': 'application/json'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        stubs = list(self.db.scenario_stub.find())
+        self.assertEqual(len(stubs), 1)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/end/session?session=rest_1'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(
+            self.get_url('/stubo/api/begin/session?scenario=rest&session=rest_1&mode=playback'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+
+        self.http_client.fetch(self.get_url('/stubo/api/get/response?session=rest_1'),
+                               self.stop, method='POST', body="", headers={'Stubo-Request-Path': '/some/content',
+                                                                           'Stubo-Request-Method': 'GET'})
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        self.assertEqual(response.headers.get("Content-Type"), "application/json")
+        self.assertEqual(response.headers.get("My-App"), "XYZ")

@@ -11,6 +11,13 @@ Deprecated:
 
 Removed:
 
+0.8.6
+
+Added:
+
+- Fixed a bug with exporting scenarios not working for stubs with multiple responses
+- Updated travis build URL for IAG Mirage repos.
+
 0.8.5
 
 Added:

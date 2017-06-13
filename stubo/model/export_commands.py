@@ -55,27 +55,31 @@ def export_stubs_to_commands_format(handler, scenario_name_key, scenario_name, s
     ]
     files = []
     scenario = Scenario()
-    # get scenario pre stubs for specified scenario
+
+    # get scenario stubs for specified scenario
     stubs = list(scenario.get_stubs(scenario_name_key))
     pre_stubs = list(scenario.get_pre_stubs(scenario_name_key))
     if pre_stubs:
-        for i in range(len(pre_stubs)):
-            pre_entry = pre_stubs[i]
-            pre_stub = Stub(pre_entry['stub'], scenario_name_key)
+        stub_seq = 0
+        for i in range(len(stubs)):
+            entry = stubs[i]
+            stub = Stub(entry['stub'], scenario_name_key) if entry and "stub" in entry else None
             # if stub is rest - matcher may be None, checking that
-            if pre_stub.contains_matchers() is None:
+            if stub.contains_matchers() is None:
                 cmds.append('# Stub skipped since no matchers were found. Consider using .yaml format for additional '
                             'capabilities')
                 # skipping to next stub, this stub is not compatible with .commands format
+                stub_seq += 1
                 continue
-            matchers = [('{0}_{1}_{2}.textMatcher'.format(session, i, x), pre_stub.contains_matchers()[x])
-                        for x in range(len(pre_stub.contains_matchers()))]
+            matchers = [('{0}_{1}_{2}.textMatcher'.format(session, i, x), stub.contains_matchers()[x])
+                        for x in range(len(stub.contains_matchers()))]
             matchers_str = ",".join(x[0] for x in matchers)
-            url_args = pre_stub.args()
-            url_args['session'] = session
-            entry = stubs[i] if stubs else None
-            if entry:
-                stub = Stub(entry['stub'], scenario_name_key) if entry and "stub" in entry else None
+            responses = stub.response_body() if stub else None
+            for r in range(len(responses)):
+                pre_entry = pre_stubs[stub_seq]
+                pre_stub = Stub(pre_entry['stub'], scenario_name_key)
+                url_args = pre_stub.args()
+                url_args['session'] = session
                 module_info = stub.module() if stub else None
                 if module_info:
                     # Note: not including put/module in the export, modules are shared
@@ -84,14 +88,12 @@ def export_stubs_to_commands_format(handler, scenario_name_key, scenario_name, s
                     url_args['stub_created_date'] = stub.recorded()
                     url_args['stubbedSystemDate'] = module_info.get('recorded_system_date')
                     url_args['system_date'] = module_info.get('system_date')
-            url_args =  urlencode(url_args)
-            responses = pre_stub.response_body()
-            assert(len(responses) == 1)
-            response = responses[0]
-            response = ('{0}_{1}.response'.format(session, i), response)
-            cmds.append('put/stub?{0},{1},{2}'.format(url_args, matchers_str,
-                                                      response[0]))
-            files.append(response)
+                url_args = urlencode(url_args)
+                response = responses[r]
+                response = ('{0}_{1}.response'.format(session, stub_seq), response)
+                cmds.append('put/stub?{0},{1},{2}'.format(url_args, matchers_str, response[0]))
+                files.append(response)
+                stub_seq += 1
             files.extend(matchers)
     else:
         cmds.append('put/stub?session={0},text=a_dummy_matcher,text=a_dummy_response'.format(session))
@@ -120,7 +122,8 @@ def export_stubs_to_commands_format(handler, scenario_name_key, scenario_name, s
         playback = list(playback)
         if not playback:
             raise exception_response(400,
-                                     title="Unable to find a playback for scenario='{0}', playback_session='{1}'".format(scenario_name, playback_session))
+                                     title="Unable to find a playback for scenario='{0}', playback_session='{1}'".format(
+                                         scenario_name, playback_session))
 
         cmds.append('begin/session?scenario={0}&session={1}&mode=playback'.format(
             scenario_name, session))
@@ -141,13 +144,12 @@ def export_stubs_to_commands_format(handler, scenario_name_key, scenario_name, s
             files.append((stubo_response_file_name, stubo_response_text))
             url_args = track['request_params']
             url_args['session'] = session
-            url_args =  urlencode(url_args)
+            url_args = urlencode(url_args)
             cmds.append(u'get/response?{0},{1}'.format(url_args,
                                                        request_file_name))
         cmds.append('end/session?session={0}'.format(session))
 
-    files.append(('{0}.commands'.format(scenario_name),
-                  b"\r\n".join(cmds)))
+    files.append(('{0}.commands'.format(scenario_name), b"\r\n".join(cmds)))
 
     # checking whether export dir parameter is provided
     if not export_dir:
@@ -159,8 +161,8 @@ def export_stubs_to_commands_format(handler, scenario_name_key, scenario_name, s
     os.makedirs(export_dir_path)
 
     archive_name = os.path.join(export_dir_path, scenario_name)
-    zout = zipfile.ZipFile(archive_name+'.zip', "w")
-    tar = tarfile.open(archive_name+".tar.gz", "w:gz")
+    zout = zipfile.ZipFile(archive_name + '.zip', "w")
+    tar = tarfile.open(archive_name + ".tar.gz", "w:gz")
     for finfo in files:
         fname, contents = finfo
         file_path = os.path.join(export_dir_path, fname)
@@ -171,10 +173,10 @@ def export_stubs_to_commands_format(handler, scenario_name_key, scenario_name, s
         zout.write(file_path, fname)
     tar.close()
     zout.close()
-    shutil.copy(archive_name+'.zip', archive_name+'.jar')
+    shutil.copy(archive_name + '.zip', archive_name + '.jar')
 
-    files.extend([(scenario_name+'.zip',), (scenario_name+'.tar.gz',),
-                  (scenario_name+'.jar',)])
+    files.extend([(scenario_name + '.zip',), (scenario_name + '.tar.gz',),
+                  (scenario_name + '.jar',)])
     # getting links
     links = get_export_links(handler, scenario_name_key, files)
 
