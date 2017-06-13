@@ -1,0 +1,9 @@
+put/module?name=/static/cmds/tests/exports/export_with_multiple_response/ocd.py
+
+delete/stubs?scenario=ECSelling124Test
+begin/session?scenario=ECSelling124Test&session=ECSelling124Test_1470319297&mode=record
+put/stub?session=ECSelling124Test_1470319297&ext_module=ocd&stub_created_date=2016-08-04&stubbedSystemDate=2016-08-04&system_date=2016-08-04,ECSelling124Test_1470319297_1_0.textMatcher,ECSelling124Test_1470319297_1_1.textMatcher,ECSelling124Test_1470319297_1.response.0
+put/stub?session=ECSelling124Test_1470319297&ext_module=ocd&stub_created_date=2016-08-04&stubbedSystemDate=2016-08-04&system_date=2016-08-04,ECSelling124Test_1470319297_1_0.textMatcher,ECSelling124Test_1470319297_1_1.textMatcher,ECSelling124Test_1470319297_1.response.1
+put/stub?session=ECSelling124Test_1470319297&ext_module=ocd&stub_created_date=2016-08-04&stubbedSystemDate=2016-08-04&system_date=2016-08-04,ECSelling124Test_1470319297_1_0.textMatcher,ECSelling124Test_1470319297_1_1.textMatcher,ECSelling124Test_1470319297_1.response.2
+put/stub?session=ECSelling124Test_1470319297&ext_module=ocd&stub_created_date=2016-08-04&stubbedSystemDate=2016-08-04&system_date=2016-08-04,ECSelling124Test_1470319297_1_0.textMatcher,ECSelling124Test_1470319297_1_1.textMatcher,ECSelling124Test_1470319297_1.response.3
+end/session?session=ECSelling124Test_1470319297
