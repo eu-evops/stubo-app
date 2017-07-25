@@ -194,7 +194,7 @@ var RecordsComponent = React.createClass({
 
     componentWillMount() {
         if ("WebSocket" in window) {
-            this.state.ws = new WebSocket("ws:/" + window.location.host + "/api/ws/tracker");
+            this.state.ws = new WebSocket("ws://" + window.location.host + "/api/ws/tracker");
 
             let that = this;
             this.state.ws.onclose = function () {
