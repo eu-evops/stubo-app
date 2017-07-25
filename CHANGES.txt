@@ -11,6 +11,11 @@ Deprecated:
 
 Removed:
 
+0.8.7
+
+Fixed:
+- Fixed a bug with unable to access tracker page in IE
+
 0.8.6
 
 Added:
