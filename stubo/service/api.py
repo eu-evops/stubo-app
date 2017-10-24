@@ -9,6 +9,7 @@ import shutil
 import logging
 import random
 import sys
+import time
 import copy
 from urlparse import urlparse
 from StringIO import StringIO
@@ -396,6 +397,18 @@ def calculate_delay(policy):
 
 
 def get_response(handler, session_name):
+
+    def apply_delay(delay_policy):
+        log.info("delay_policy: {0}".format(delay_policy))
+        if delay_policy:
+            delay = Delay.parse_args(delay_policy)
+            if delay:
+                delay = delay.calculate()
+                msg = 'apply delay: {0} => {1}'.format(delay_policy, delay)
+                log.debug(msg)
+                time.sleep(delay / 1000.0)
+                trace_response.info(msg)
+
     # getting request value
     request = handler.request
     stubo_request = StuboRequest(request)
@@ -453,7 +466,6 @@ def get_response(handler, session_name):
         request_index_key = add_request(session, request_id, stub, system_date,
                                         stub_number,
                                         handler.settings['request_cache_limit'])
-
         if not stub.response_body():
             _response = stub.get_response_from_cache(request_index_key)
             stub.set_response_body(_response['body'])
@@ -461,11 +473,19 @@ def get_response(handler, session_name):
         if delay_policy_name:
             stub.load_delay_from_cache(delay_policy_name)
 
+    # get latest delay policy
+    if cached_request:
+        delay_policy = cache.get_delay_policy(delay_policy_name)
+    else:
+        delay_policy = stub.delay_policy()
+
+    trace_response = TrackTrace(handler.track, 'response')
+    apply_delay(delay_policy)
+
     if cached_request:
         stub = StubCache({}, scenario_key, session_name)
         stub.load_from_cache(response_ids, delay_policy_name, recorded,
-                             system_date, module_info, request_index_key)
-    trace_response = TrackTrace(handler.track, 'response')
+                                      system_date, module_info, request_index_key)
     if module_info:
         trace_response.info('module used', str(module_info))
     response_text = stub.response_body()
@@ -473,17 +493,6 @@ def get_response(handler, session_name):
         raise exception_response(500,
                                  title='Unable to find response in cache using session: {0}:{1}, '
                                        'response_ids: {2}'.format(scenario_key, session_name, response_ids))
-
-    # get latest delay policy
-    delay_policy = stub.delay_policy()
-    if delay_policy:
-        delay = Delay.parse_args(delay_policy)
-        if delay:
-            delay = delay.calculate()
-            msg = 'apply delay: {0} => {1}'.format(delay_policy, delay)
-            log.debug(msg)
-            handler.track['delay'] = delay
-            trace_response.info(msg)
 
     trace_response.info('found response')
     module_system_date = as_date(module_system_date) if module_system_date \
@@ -498,6 +507,7 @@ def get_response(handler, session_name):
                         stage='response',
                         trace=trace_response,
                         url_args=url_args)
+
     transfomed_response_text = stub.response_body()[0]
     # Note transformed_response_text can be encoded in utf8
     if response_text[0] != transfomed_response_text:
