@@ -11,6 +11,11 @@ Deprecated:
 
 Removed:
 
+0.8.9
+
+Changed:
+- Changed stubo-ba-ext to introduce ability to roll 8 digit dates
+
 0.8.8
 
 Added:
