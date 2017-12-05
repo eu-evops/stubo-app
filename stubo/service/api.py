@@ -516,6 +516,9 @@ def get_response(handler, session_name):
                             dict(response=transfomed_response_text))
     if stub.response_status() != 200:
         handler.set_status(stub.response_status())
+    content_type = request.headers.get('Content-Type')
+    if content_type:
+        handler.set_header('Content-Type', content_type)        
     if stub.response_headers():
         for k, v in stub.response_headers().iteritems():
             handler.set_header(k, v)
