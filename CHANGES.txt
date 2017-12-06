@@ -11,6 +11,11 @@ Deprecated:
 
 Removed:
 
+0.8.10
+
+Changed:
+- Changed Stubo to respond with return header Content-Type if provided in the request
+
 0.8.9
 
 Changed:
