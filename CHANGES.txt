@@ -11,6 +11,11 @@ Deprecated:
 
 Removed:
 
+0.8.11
+
+Fixed:
+- Fixed tracker page not opening in IE
+
 0.8.10
 
 Changed:
