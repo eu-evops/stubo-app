@@ -11,7 +11,7 @@ Mirage enables development and automated testing by allowing you to virtualize y
 
 ### readthedocs
 
-The [readthedocs documentation](<http://mirage-docs.readthedocs.org/en/latest/?badge=latest/>) is the official Mirage documentation.
+The [readthedocs documentation](<http://iag-mirage.readthedocs.org/en/latest/?badge=latest/>) is the official Mirage documentation.
 
 ### Wiki
 
