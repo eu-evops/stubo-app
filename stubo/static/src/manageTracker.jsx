@@ -338,7 +338,7 @@ var RecordsComponent = React.createClass({
                         }}
 
                         filterPlaceholderText={'Filter results, use "rt" for response time,' +
-                        '"sc" for status code, "session" for session, "d" for delay. Example: "scenario_1 sc:200 rt:<=500 d:200"'}
+                        '"sc" for status code, "session" for session, "d" for delay. Example: "scenario_1 session:session_1 sc:200 rt:<=500 d:200"'}
                         externalSetFilter={this.setFilter}
                         showFilter={true}
 
