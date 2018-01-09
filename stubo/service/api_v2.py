@@ -459,8 +459,8 @@ class MagicFiltering:
         :param session:
         """
         try:
-            _, d = session.split(":")
-            self.conditions.append({'request_params.session': d})
+            _, s = session.split(":")
+            self.conditions.append({'request_params.session': s})
         except Exception as ex:
             log.debug("Got error during session code search: %s" % ex)
 
