@@ -72,6 +72,21 @@ webpackJsonp([6],[
 	    }
 	});
 
+	var SessionCallWrapper = _react2['default'].createClass({
+	    displayName: "SessionCallWrapper",
+
+	    render: function render() {
+	        var apiCall = this.props.rowData.request_params.session;
+	        return _react2['default'].createElement(
+	            'div',
+	            { style: { overflow: 'hidden', textOverflow: 'ellipsis' } },
+	            ' ',
+	            apiCall,
+	            ' '
+	        );
+	    }
+	});
+
 	var StatusLabelComponent = _react2['default'].createClass({
 	    displayName: "StatusLabelComponent",
 
@@ -178,28 +193,35 @@ webpackJsonp([6],[
 	    "visible": true,
 	    "customComponent": ScenarioCallWrapper
 	}, {
+	    "columnName": "session",
+	    "displayName": "Sesssion",
+	    "order": 4,
+	    "locked": false,
+	    "visible": true,
+	    "customComponent": SessionCallWrapper
+	}, {
 	    "columnName": "return_code",
 	    "displayName": "HTTP status code",
-	    "order": 4,
+	    "order": 5,
 	    "locked": false,
 	    "visible": true,
 	    "customComponent": StatusLabelComponent
 	}, {
 	    "columnName": "duration_ms",
 	    "displayName": "Response time (ms)",
-	    "order": 5,
+	    "order": 6,
 	    "locked": false,
 	    "visible": true
 	}, {
 	    "columnName": "delay",
 	    "displayName": "Delay (ms)",
-	    "order": 6,
+	    "order": 7,
 	    "locked": false,
 	    "visible": true
 	}, {
 	    "columnName": "actions",
 	    "displayName": "Actions",
-	    "order": 7,
+	    "order": 8,
 	    "locked": false,
 	    "visible": true,
 	    "customComponent": ActionComponent
@@ -341,14 +363,14 @@ webpackJsonp([6],[
 	        return _react2['default'].createElement(_griddleReact2['default'], { useExternal: true,
 	            externalSetPage: this.setPage,
 	            enableSort: false,
-	            columns: ["start_time", "function", "scenario", "return_code", "duration_ms", "delay", "actions"],
+	            columns: ["start_time", "function", "scenario", "session", "return_code", "duration_ms", "delay", "actions"],
 	            columnMetadata: columnMeta,
 
 	            externalSetPageSize: this.setPageSize,
 	            externalMaxPage: this.state.maxPages,
 	            externalChangeSort: function () {},
 
-	            filterPlaceholderText: 'Filter results, use "rt" for response time,' + '"sc" for status code, "d" for delay. Example: "scenario_1 sc:200 rt:<=500 d:200"',
+	            filterPlaceholderText: 'Filter results, use "rt" for response time,' + '"sc" for status code, "session" for session, "d" for delay. Example: "scenario_1 session:session_1 sc:200 rt:<=500 d:200"',
 	            externalSetFilter: this.setFilter,
 	            showFilter: true,
 
