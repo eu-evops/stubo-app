@@ -432,6 +432,9 @@ class MagicFiltering:
         elif 'd:' in item and len(item) > 2:
             # looking for delays conditions
             self._find_delays_conditions(item)
+        elif 'session' in item and len(item) > 2:
+            # looking for session filter
+            self._find_session_conditions(item)
         else:
             # looking for any keywords in scenarios or API calls
             self._find_api_scenario_conditions(item)
@@ -448,6 +451,18 @@ class MagicFiltering:
             self.conditions.append({'delay': value})
         except Exception as ex:
             log.debug("Got error during delay code search: %s" % ex)
+
+    def _find_session_conditions(self, session):
+        """
+
+        Filters based on session ids
+        :param session:
+        """
+        try:
+            _, d = session.split(":")
+            self.conditions.append({'request_params.session': d})
+        except Exception as ex:
+            log.debug("Got error during session code search: %s" % ex)
 
     def _find_status_code_conditions(self, status_code):
         """

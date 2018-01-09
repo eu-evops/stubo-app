@@ -1,7 +1,7 @@
 import ReactDOM from 'react-dom';
 import React from 'react';
 import Griddle from 'griddle-react';
-import { Tooltip, OverlayTrigger, Button} from 'react-bootstrap';
+import {Tooltip, OverlayTrigger, Button} from 'react-bootstrap';
 import cookie from 'react-cookie';
 
 // currently not used, need more testing, but it should be fast enough so loading message is not required
@@ -11,7 +11,7 @@ var Loading = React.createClass({
             loadingText: "Loading"
         }
     },
-    render(){
+    render() {
         return <div className="loading">{this.props.loadingText}</div>;
     }
 });
@@ -19,10 +19,10 @@ var Loading = React.createClass({
 var ApiCallWrapper = React.createClass({
     displayName: "ApiCallWrapper",
 
-    render(){
+    render() {
         var apiCall = this.props.rowData.function;
         return (
-            <div style={{overflow: 'hidden', textOverflow: 'ellipsis', direction:'rtl'}}> {apiCall} </div>
+            <div style={{overflow: 'hidden', textOverflow: 'ellipsis', direction: 'rtl'}}> {apiCall} </div>
         )
     }
 });
@@ -30,7 +30,7 @@ var ApiCallWrapper = React.createClass({
 var ScenarioCallWrapper = React.createClass({
     displayName: "ScenarioCallWrapper",
 
-    render(){
+    render() {
         var apiCall = this.props.rowData.scenario;
         return (
             <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
@@ -38,10 +38,22 @@ var ScenarioCallWrapper = React.createClass({
     }
 });
 
+var SessionCallWrapper = React.createClass({
+    displayName: "SessionCallWrapper",
+
+    render() {
+        var apiCall = this.props.rowData.request_params.session;
+        return (
+            <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
+        )
+    }
+});
+
+
 var StatusLabelComponent = React.createClass({
     displayName: "StatusLabelComponent",
 
-    getInitialState(){
+    getInitialState() {
         return {
             labelClass: 'label label-default'
         };
@@ -138,9 +150,17 @@ var columnMeta = [
         "customComponent": ScenarioCallWrapper
     },
     {
+        "columnName": "session",
+        "displayName": "Sesssion",
+        "order": 4,
+        "locked": false,
+        "visible": true,
+        "customComponent": SessionCallWrapper
+    },
+    {
         "columnName": "return_code",
         "displayName": "HTTP status code",
-        "order": 4,
+        "order": 5,
         "locked": false,
         "visible": true,
         "customComponent": StatusLabelComponent
@@ -148,21 +168,21 @@ var columnMeta = [
     {
         "columnName": "duration_ms",
         "displayName": "Response time (ms)",
-        "order": 5,
+        "order": 6,
         "locked": false,
         "visible": true
     },
     {
         "columnName": "delay",
         "displayName": "Delay (ms)",
-        "order": 6,
+        "order": 7,
         "locked": false,
         "visible": true
     },
     {
         "columnName": "actions",
         "displayName": "Actions",
-        "order": 7,
+        "order": 8,
         "locked": false,
         "visible": true,
         "customComponent": ActionComponent
@@ -171,7 +191,7 @@ var columnMeta = [
 ];
 
 var RecordsComponent = React.createClass({
-    getInitialState(){
+    getInitialState() {
         var initial = {
             "currentPage": 0,
             "isLoading": false,
@@ -309,15 +329,16 @@ var RecordsComponent = React.createClass({
         return <Griddle useExternal={true}
                         externalSetPage={this.setPage}
                         enableSort={false}
-                        columns={["start_time", "function", "scenario", "return_code", "duration_ms", "delay", "actions"]}
+                        columns={["start_time", "function", "scenario", "session", "return_code", "duration_ms", "delay", "actions"]}
                         columnMetadata={columnMeta}
 
                         externalSetPageSize={this.setPageSize}
                         externalMaxPage={this.state.maxPages}
-                        externalChangeSort={function(){}}
+                        externalChangeSort={function () {
+                        }}
 
                         filterPlaceholderText={'Filter results, use "rt" for response time,' +
-                             '"sc" for status code, "d" for delay. Example: "scenario_1 sc:200 rt:<=500 d:200"'}
+                        '"sc" for status code, "session" for session, "d" for delay. Example: "scenario_1 sc:200 rt:<=500 d:200"'}
                         externalSetFilter={this.setFilter}
                         showFilter={true}
 
@@ -337,4 +358,4 @@ var RecordsComponent = React.createClass({
 });
 
 
-ReactDOM.render(<RecordsComponent />, document.getElementById("app"));
+ReactDOM.render(<RecordsComponent/>, document.getElementById("app"));
