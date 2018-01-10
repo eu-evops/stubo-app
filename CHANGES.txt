@@ -14,8 +14,8 @@ Removed:
 
 0.8.14
 
-Fixed:
-- Updated Mirage UI build
+Added:
+- Adding ability to filter results by session id
 
 0.8.13
 
