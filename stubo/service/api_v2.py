@@ -452,20 +452,17 @@ class MagicFiltering:
         except Exception as ex:
             log.debug("Got error during delay code search: %s" % ex)
 
-
     def _find_session_conditions(self, session):
         """
 
         Filters based on session ids
         :param session:
         """
-
         try:
-            _, d = session.split(":")
-            self.conditions.append({'request_params.session': d})
+            _, s = session.split(":")
+            self.conditions.append({'request_params.session': s})
         except Exception as ex:
-            log.debug("Got error during delay code search: %s" % ex)
-
+            log.debug("Got error during session code search: %s" % ex)
 
     def _find_status_code_conditions(self, status_code):
         """

@@ -11,6 +11,54 @@ Deprecated:
 
 Removed:
 
+
+0.8.14
+
+Added:
+- Adding ability to filter results by session id
+
+0.8.13
+
+Fixed:
+- Updated Mirage readthedocs.org documentation URL
+
+0.8.12
+
+Fixed:
+- Enabled SSL verification for HTTPS URLs.
+
+0.8.11
+
+Fixed:
+- Fixed tracker page not opening in IE
+
+0.8.10
+
+Changed:
+- Changed Stubo to respond with return header Content-Type if provided in the request
+
+0.8.9
+
+Changed:
+- Changed stubo-ba-ext to introduce ability to roll 8 digit dates
+
+0.8.8
+
+Added:
+- Added ability to delay the pulling stubo response into mememroy until after the set delay
+
+0.8.7
+
+Fixed:
+- Fixed a bug with unable to access tracker page in IE
+
+0.8.6
+
+Added:
+
+- Fixed a bug with exporting scenarios not working for stubs with multiple responses
+- Updated travis build URL for IAG Mirage repos.
+
 0.8.5
 
 Added:

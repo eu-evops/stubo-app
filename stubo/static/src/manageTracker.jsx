@@ -1,7 +1,7 @@
 import ReactDOM from 'react-dom';
 import React from 'react';
 import Griddle from 'griddle-react';
-import { Tooltip, OverlayTrigger, Button} from 'react-bootstrap';
+import {Tooltip, OverlayTrigger, Button} from 'react-bootstrap';
 import cookie from 'react-cookie';
 
 // currently not used, need more testing, but it should be fast enough so loading message is not required
@@ -11,7 +11,7 @@ var Loading = React.createClass({
             loadingText: "Loading"
         }
     },
-    render(){
+    render() {
         return <div className="loading">{this.props.loadingText}</div>;
     }
 });
@@ -19,10 +19,10 @@ var Loading = React.createClass({
 var ApiCallWrapper = React.createClass({
     displayName: "ApiCallWrapper",
 
-    render(){
+    render() {
         var apiCall = this.props.rowData.function;
         return (
-            <div style={{overflow: 'hidden', textOverflow: 'ellipsis', direction:'rtl'}}> {apiCall} </div>
+            <div style={{overflow: 'hidden', textOverflow: 'ellipsis', direction: 'rtl'}}> {apiCall} </div>
         )
     }
 });
@@ -30,7 +30,7 @@ var ApiCallWrapper = React.createClass({
 var ScenarioCallWrapper = React.createClass({
     displayName: "ScenarioCallWrapper",
 
-    render(){
+    render() {
         var apiCall = this.props.rowData.scenario;
         return (
             <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
@@ -38,11 +38,10 @@ var ScenarioCallWrapper = React.createClass({
     }
 });
 
-
 var SessionCallWrapper = React.createClass({
     displayName: "SessionCallWrapper",
 
-    render(){
+    render() {
         var apiCall = this.props.rowData.request_params.session;
         return (
             <div style={{overflow: 'hidden', textOverflow: 'ellipsis'}}> {apiCall} </div>
@@ -53,7 +52,7 @@ var SessionCallWrapper = React.createClass({
 var StatusLabelComponent = React.createClass({
     displayName: "StatusLabelComponent",
 
-    getInitialState(){
+    getInitialState() {
         return {
             labelClass: 'label label-default'
         };
@@ -191,7 +190,7 @@ var columnMeta = [
 ];
 
 var RecordsComponent = React.createClass({
-    getInitialState(){
+    getInitialState() {
         var initial = {
             "currentPage": 0,
             "isLoading": false,
@@ -214,7 +213,7 @@ var RecordsComponent = React.createClass({
 
     componentWillMount() {
         if ("WebSocket" in window) {
-            this.state.ws = new WebSocket("ws:/" + window.location.host + "/api/ws/tracker");
+            this.state.ws = new WebSocket("ws://" + window.location.host + "/api/ws/tracker");
 
             let that = this;
             this.state.ws.onclose = function () {
@@ -334,10 +333,11 @@ var RecordsComponent = React.createClass({
 
                         externalSetPageSize={this.setPageSize}
                         externalMaxPage={this.state.maxPages}
-                        externalChangeSort={function(){}}
+                        externalChangeSort={function () {
+                        }}
 
                         filterPlaceholderText={'Filter results, use "rt" for response time,' +
-                             '"sc" for status code, "session" for session, ""d" for delay. Example: "scenario_1 sc:200 rt:<=500 d:200"'}
+                        '"sc" for status code, "session" for session, "d" for delay. Example: "scenario_1 session:session_1 sc:200 rt:<=500 d:200"'}
                         externalSetFilter={this.setFilter}
                         showFilter={true}
 
@@ -357,4 +357,4 @@ var RecordsComponent = React.createClass({
 });
 
 
-ReactDOM.render(<RecordsComponent />, document.getElementById("app"));
+ReactDOM.render(<RecordsComponent/>, document.getElementById("app"));
