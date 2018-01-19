@@ -55,7 +55,7 @@ class Exporter(object):
                       stubs=[])
         export_payload = dict(recording=header)
         scenario_db = Scenario()
-        stubs = list(scenario_db.get_pre_stubs(scenario))
+        stubs = list(scenario_db.get_stubs(scenario))
         if len(stubs) > 0:
             for i in range(len(stubs)):
                 entry = stubs[i]

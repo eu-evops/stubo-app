@@ -232,7 +232,7 @@ def make_temp_dir(dirname=None):
 def get_export_links(request, scenario_name_key, files):
     # the export uses the local file system so the link needs to refer to the
     # server that has performed the export.  
-    local_server = 'http://{0}:{1}'.format(request.track.server,
+    local_server = 'http://{0}:{1}'.format(request.track.host,
                                            request.track.port or 8001)
     return [(x[0], local_server + request.static_url(os.path.join(
         'exports', scenario_name_key.replace(':', '_'), x[0]))) for x in files]
